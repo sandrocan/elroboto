@@ -25,11 +25,17 @@ Startpunkt der Anwendung. Die Funktion `main()` führt derzeit aus:
 5. `BSP_LED_Init()` initialisiert die grüne Benutzer-LED.
 6. `BSP_PB_Init()` initialisiert den Benutzer-Taster mit Interrupt.
 7. `BSP_COM_Init()` richtet USART1 mit 115200 Baud ein.
-8. Die Endlosschleife schaltet die LED und schreibt Statusmeldungen.
+8. Die Endlosschleife verarbeitet Tasterereignisse, schaltet die LED und
+   schreibt Statusmeldungen.
 
 Die Zeitvergleiche verwenden Differenzen von `HAL_GetTick()`. Dadurch wartet
 die CPU nicht blockierend und der Überlauf des 32-Bit-Tickzählers wird korrekt
 behandelt.
+
+Der Tasterinterrupt ruft `BSP_PB_Callback()` auf. Die Callback-Funktion setzt
+nur ein `volatile` Ereignis-Flag. Entprellung, Änderung des Blinkintervalls und
+Logging erfolgen anschließend in der Hauptschleife. Dadurch bleibt die
+Interrupt-Verarbeitung kurz und `printf()` wird nicht aus einer ISR aufgerufen.
 
 ### `stm32u5xx_hal_msp.c`
 
@@ -147,4 +153,3 @@ Diese Dateien werden dann im obersten `CMakeLists.txt` ergänzt. So bleibt
 Die HAL-Dateien sind umfangreich und hauptsächlich Bibliothekscode. Für das
 Verständnis der Anwendung ist es effizienter, zunächst von `main.c` aus den
 tatsächlich verwendeten Funktionsaufrufen zu folgen.
-

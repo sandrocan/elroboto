@@ -7,6 +7,7 @@ konfiguriert, über CMake gebaut und per ST-LINK/SWD programmiert und debuggt.
 ## Aktueller Stand
 
 - Die grüne Benutzer-LED LD2 wechselt alle 500 ms ihren Zustand.
+- Der Benutzer-Taster B1 wechselt zwischen 500 ms und 100 ms Blinkintervall.
 - USART1 ist als Virtual COM Port mit 115200 Baud eingerichtet.
 - Nach dem Start erscheint `elroboto booted` auf der seriellen Schnittstelle.
 - Ein Lebenszeichen mit der vergangenen Laufzeit wird einmal pro Sekunde
@@ -91,4 +92,3 @@ zwischen Markierungen wie:
 CubeMX erhält diese Bereiche bei einer Neugenerierung. Code außerhalb davon
 kann überschrieben werden. Größere eigene Module sollen später außerhalb der
 generierten Dateien angelegt und über `CMakeLists.txt` eingebunden werden.
-

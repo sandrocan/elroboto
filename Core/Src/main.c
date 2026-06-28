@@ -31,7 +31,9 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define LED_BLINK_SLOW_MS       500U
+#define LED_BLINK_FAST_MS       100U
+#define BUTTON_DEBOUNCE_MS       50U
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -46,7 +48,10 @@ COM_InitTypeDef BspCOMInit;
 /* USER CODE BEGIN PV */
 static uint32_t last_led_toggle_ms;
 static uint32_t last_status_log_ms;
+static uint32_t last_button_event_ms;
+static uint32_t led_blink_period_ms = LED_BLINK_SLOW_MS;
 static uint8_t boot_message_pending = 1U;
+static volatile uint8_t button_event_pending;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -127,7 +132,24 @@ int main(void)
       printf("\r\nelroboto booted\r\n");
     }
 
-    if ((uint32_t)(now_ms - last_led_toggle_ms) >= 500U)
+    if (button_event_pending != 0U)
+    {
+      button_event_pending = 0U;
+
+      if ((uint32_t)(now_ms - last_button_event_ms) >= BUTTON_DEBOUNCE_MS)
+      {
+        last_button_event_ms = now_ms;
+        led_blink_period_ms =
+            (led_blink_period_ms == LED_BLINK_SLOW_MS)
+                ? LED_BLINK_FAST_MS
+                : LED_BLINK_SLOW_MS;
+
+        printf("B1 pressed: LED period = %lu ms\r\n",
+               (unsigned long)led_blink_period_ms);
+      }
+    }
+
+    if ((uint32_t)(now_ms - last_led_toggle_ms) >= led_blink_period_ms)
     {
       last_led_toggle_ms = now_ms;
       (void)BSP_LED_Toggle(LED_GREEN);
@@ -242,6 +264,14 @@ static void MX_ICACHE_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+void BSP_PB_Callback(Button_TypeDef Button)
+{
+  if (Button == BUTTON_USER)
+  {
+    button_event_pending = 1U;
+  }
+}
 
 /* USER CODE END 4 */
 

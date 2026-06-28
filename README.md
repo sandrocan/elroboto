@@ -12,13 +12,20 @@ konfiguriert, über CMake gebaut und per ST-LINK/SWD programmiert und debuggt.
 - Nach dem Start erscheint `elroboto booted` auf der seriellen Schnittstelle.
 - Ein Lebenszeichen mit der vergangenen Laufzeit wird einmal pro Sekunde
   ausgegeben.
+- LPUART1 ist mit 1 Mbit/s fuer den Waveshare Bus Servo Adapter eingerichtet.
+- Ein STS3215 wurde ueber den externen UART erfolgreich als ID 6 gepingt.
+- Der aktuelle B1-Commissioning-Test scannt IDs 0 bis 253 rein lesend.
 
 ## Verzeichnisübersicht
 
 | Pfad | Inhalt |
 | --- | --- |
 | `App/` | Eigene, nichtblockierende Anwendungslogik und Zustände |
+| `ServoBus/` | STS3215-Paketformat, Parser und begrenzter UART-Transport |
 | `Core/` | Hardwareinitialisierung, Interrupt-Einstieg, System- und C-Laufzeit-Anbindung |
+| `docs/` | Hardwarebelegung und protokollierte Bring-up-Erkenntnisse |
+| `tests/` | Hardwareunabhängige Tests der Servo-Protokolllogik |
+| `tools/` | Lokale Diagnosewerkzeuge, unter anderem für macOS |
 | `Drivers/BSP/` | Board Support Package für LED, Taster und Virtual COM Port des Nucleo-Boards |
 | `Drivers/CMSIS/` | ARM-Cortex-M33- und STM32U545-Definitionen auf Registerebene |
 | `Drivers/STM32U5xx_HAL_Driver/` | Hardware Abstraction Layer von ST für GPIO, UART, Clock, Flash usw. |
@@ -28,7 +35,9 @@ konfiguriert, über CMake gebaut und per ST-LINK/SWD programmiert und debuggt.
 | `.vscode/` | Gemeinsame Build- und Debug-Konfiguration für VS Code |
 
 Mehr Details zu den Dateien in `Core/` stehen in
-[Core/README.md](Core/README.md).
+[Core/README.md](Core/README.md). Die finale Servo-Verkabelung steht in
+[docs/hardware.md](docs/hardware.md); der gesamte Diagnoseweg ist in
+[docs/servo_bus_bringup.md](docs/servo_bus_bringup.md) festgehalten.
 
 ## Wichtige Dateien
 
@@ -36,6 +45,8 @@ Mehr Details zu den Dateien in `Core/` stehen in
 | --- | --- |
 | `elroboto.ioc` | Zentrale CubeMX-Konfiguration für Board, Pins, Clock und Peripherie |
 | `App/Src/app.c` | LED-, Taster- und Logging-Logik der Anwendung |
+| `ServoBus/Src/servo_bus_protocol.c` | STS3215-Pakete, Checksummen und Antwortparser |
+| `ServoBus/Src/servo_bus_transport.c` | Begrenzter HAL-UART-Transport für das Bring-up |
 | `Core/Src/main.c` | Hardwareinitialisierung und zyklischer Aufruf der Anwendung |
 | `CMakeLists.txt` | Oberste Buildbeschreibung und Platz für eigene Module |
 | `CMakePresets.json` | Vordefinierte Builds `Debug` und `Release` |

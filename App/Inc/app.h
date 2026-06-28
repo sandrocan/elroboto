@@ -1,10 +1,12 @@
 #ifndef APP_H
 #define APP_H
 
+#include "stm32u5xx_hal.h"
+
 #include <stdint.h>
 
 /** Initialize the application state after all required hardware is ready. */
-void App_Init(void);
+void App_Init(UART_HandleTypeDef *servo_uart);
 
 /** Run one non-blocking application cycle. */
 void App_Process(uint32_t now_ms);

@@ -1,0 +1,17 @@
+# Local build output
+build/
+cmake-build-*/
+
+# STM32CubeMX temporary files
+mx.scratch/
+
+# User-specific CMake configuration
+CMakeUserPresets.json
+
+# macOS and editor temporary files
+.DS_Store
+*.swp
+*~
+
+# Keep the shared STM32Cube extension settings versioned
+!.settings/

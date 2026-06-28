@@ -45,6 +45,8 @@ COM_InitTypeDef BspCOMInit;
 
 /* USER CODE BEGIN PV */
 static uint32_t last_led_toggle_ms;
+static uint32_t last_status_log_ms;
+static uint8_t boot_message_pending = 1U;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -119,10 +121,22 @@ int main(void)
   {
     const uint32_t now_ms = HAL_GetTick();
 
+    if (boot_message_pending != 0U)
+    {
+      boot_message_pending = 0U;
+      printf("\r\nelroboto booted\r\n");
+    }
+
     if ((uint32_t)(now_ms - last_led_toggle_ms) >= 500U)
     {
       last_led_toggle_ms = now_ms;
       (void)BSP_LED_Toggle(LED_GREEN);
+    }
+
+    if ((uint32_t)(now_ms - last_status_log_ms) >= 1000U)
+    {
+      last_status_log_ms = now_ms;
+      printf("elroboto alive: %lu ms\r\n", (unsigned long)now_ms);
     }
 
     /* USER CODE END WHILE */

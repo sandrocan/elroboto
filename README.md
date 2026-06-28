@@ -17,7 +17,8 @@ konfiguriert, über CMake gebaut und per ST-LINK/SWD programmiert und debuggt.
 
 | Pfad | Inhalt |
 | --- | --- |
-| `Core/` | Anwendungseinstieg, Interrupts, Systeminitialisierung und C-Laufzeit-Anbindung |
+| `App/` | Eigene, nichtblockierende Anwendungslogik und Zustände |
+| `Core/` | Hardwareinitialisierung, Interrupt-Einstieg, System- und C-Laufzeit-Anbindung |
 | `Drivers/BSP/` | Board Support Package für LED, Taster und Virtual COM Port des Nucleo-Boards |
 | `Drivers/CMSIS/` | ARM-Cortex-M33- und STM32U545-Definitionen auf Registerebene |
 | `Drivers/STM32U5xx_HAL_Driver/` | Hardware Abstraction Layer von ST für GPIO, UART, Clock, Flash usw. |
@@ -34,7 +35,8 @@ Mehr Details zu den Dateien in `Core/` stehen in
 | Datei | Aufgabe |
 | --- | --- |
 | `elroboto.ioc` | Zentrale CubeMX-Konfiguration für Board, Pins, Clock und Peripherie |
-| `Core/Src/main.c` | Einstieg in die Anwendung und aktuell die LED-/Logging-Logik |
+| `App/Src/app.c` | LED-, Taster- und Logging-Logik der Anwendung |
+| `Core/Src/main.c` | Hardwareinitialisierung und zyklischer Aufruf der Anwendung |
 | `CMakeLists.txt` | Oberste Buildbeschreibung und Platz für eigene Module |
 | `CMakePresets.json` | Vordefinierte Builds `Debug` und `Release` |
 | `STM32U545xx_FLASH.ld` | Speicheraufteilung für einen Build, der aus Flash läuft |
@@ -90,5 +92,6 @@ zwischen Markierungen wie:
 ```
 
 CubeMX erhält diese Bereiche bei einer Neugenerierung. Code außerhalb davon
-kann überschrieben werden. Größere eigene Module sollen später außerhalb der
-generierten Dateien angelegt und über `CMakeLists.txt` eingebunden werden.
+kann überschrieben werden. Eigene Module liegen außerhalb der generierten
+Dateien, beispielsweise unter `App/`, und werden über `CMakeLists.txt`
+eingebunden.

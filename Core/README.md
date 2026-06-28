@@ -25,16 +25,17 @@ Startpunkt der Anwendung. Die Funktion `main()` führt derzeit aus:
 5. `BSP_LED_Init()` initialisiert die grüne Benutzer-LED.
 6. `BSP_PB_Init()` initialisiert den Benutzer-Taster mit Interrupt.
 7. `BSP_COM_Init()` richtet USART1 mit 115200 Baud ein.
-8. Die Endlosschleife verarbeitet Tasterereignisse, schaltet die LED und
-   schreibt Statusmeldungen.
+8. `App_Init()` initialisiert den Anwendungszustand.
+9. Die Endlosschleife ruft nichtblockierend `App_Process()` auf.
 
 Die Zeitvergleiche verwenden Differenzen von `HAL_GetTick()`. Dadurch wartet
 die CPU nicht blockierend und der Überlauf des 32-Bit-Tickzählers wird korrekt
 behandelt.
 
-Der Tasterinterrupt ruft `BSP_PB_Callback()` auf. Die Callback-Funktion setzt
-nur ein `volatile` Ereignis-Flag. Entprellung, Änderung des Blinkintervalls und
-Logging erfolgen anschließend in der Hauptschleife. Dadurch bleibt die
+Der Tasterinterrupt ruft `BSP_PB_Callback()` auf. Die Callback-Funktion meldet
+das Ereignis mit `App_OnButtonInterrupt()` an das App-Modul. Dort wird nur ein
+`volatile` Flag gesetzt. Entprellung, Änderung des Blinkintervalls und Logging
+erfolgen anschließend in `App_Process()`. Dadurch bleibt die
 Interrupt-Verarbeitung kurz und `printf()` wird nicht aus einer ISR aufgerufen.
 
 ### `stm32u5xx_hal_msp.c`
@@ -130,25 +131,26 @@ Beispiele:
 ## Sicher eigenen Code ergänzen
 
 In CubeMX-generierten Dateien nur innerhalb von `USER CODE BEGIN/END` arbeiten.
-Für kleine Experimente ist `main.c` geeignet. Sobald Logik wächst, sollte sie in
-eigene Module ausgelagert werden, zum Beispiel:
+Eigene Anwendungslogik liegt bereits in:
 
 ```text
 App/Inc/app.h
 App/Src/app.c
 ```
 
-Diese Dateien werden dann im obersten `CMakeLists.txt` ergänzt. So bleibt
-`main.c` hauptsächlich für Initialisierung und zyklischen Aufruf zuständig.
+Diese Dateien sind im obersten `CMakeLists.txt` eingebunden. So bleibt `main.c`
+hauptsächlich für Initialisierung und zyklischen Aufruf zuständig.
 
 ## Empfohlene Lesereihenfolge
 
 1. `Core/Src/main.c`
-2. `Core/Inc/main.h`
-3. `Drivers/BSP/STM32U5xx_Nucleo/stm32u5xx_nucleo.h`
-4. `Core/Src/stm32u5xx_it.c`
-5. `Core/Src/syscalls.c`
-6. Erst danach HAL- oder CMSIS-Implementierungen im Detail
+2. `App/Src/app.c`
+3. `App/Inc/app.h`
+4. `Core/Inc/main.h`
+5. `Drivers/BSP/STM32U5xx_Nucleo/stm32u5xx_nucleo.h`
+6. `Core/Src/stm32u5xx_it.c`
+7. `Core/Src/syscalls.c`
+8. Erst danach HAL- oder CMSIS-Implementierungen im Detail
 
 Die HAL-Dateien sind umfangreich und hauptsächlich Bibliothekscode. Für das
 Verständnis der Anwendung ist es effizienter, zunächst von `main.c` aus den

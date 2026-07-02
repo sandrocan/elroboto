@@ -1,5 +1,8 @@
 # Local build output
 build/
+install/
+log/
+
 cmake-build-*/
 
 # STM32CubeMX temporary files
@@ -15,3 +18,5 @@ CMakeUserPresets.json
 
 # Keep the shared STM32Cube extension settings versioned
 !.settings/
+
+.vscode/

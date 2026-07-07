@@ -6,7 +6,6 @@ konfiguriert, über CMake gebaut und per ST-LINK/SWD programmiert und debuggt.
 
 ## Aktueller Stand
 
-- Die grüne Benutzer-LED LD2 wechselt alle 500 ms ihren Zustand.
 - Der Benutzer-Taster B1 startet nach dem manuellen Positionieren den
   Drive-Home-Test.
 - USART1 ist als Virtual COM Port mit 115200 Baud eingerichtet.
@@ -28,10 +27,9 @@ konfiguriert, über CMake gebaut und per ST-LINK/SWD programmiert und debuggt.
 | Pfad | Inhalt |
 | --- | --- |
 | `App/` | Eigene Anwendungslogik und Zustände |
-| `ServoBus/` | Historischer Bring-up-Code fuer STS3215-Paketformat, Parser und begrenzten UART-Transport |
 | `Core/` | Hardwareinitialisierung, Interrupt-Einstieg, System- und C-Laufzeit-Anbindung |
 | `docs/` | Hardwarebelegung und protokollierte Bring-up-Erkenntnisse |
-| `Drivers/BSP/` | Board Support Package für LED, Taster und Virtual COM Port des Nucleo-Boards |
+| `Drivers/BSP/` | Board Support Package für Taster und Virtual COM Port des Nucleo-Boards |
 | `Drivers/CMSIS/` | ARM-Cortex-M33- und STM32U545-Definitionen auf Registerebene |
 | `Drivers/STM32U5xx_HAL_Driver/` | Hardware Abstraction Layer von ST für GPIO, UART, Clock, Flash usw. |
 | `cmake/` | Toolchain- und von CubeMX erzeugte CMake-Konfiguration |
@@ -41,7 +39,7 @@ konfiguriert, über CMake gebaut und per ST-LINK/SWD programmiert und debuggt.
 
 Mehr Details zu den Dateien in `Core/` stehen in
 [Core/README.md](Core/README.md). Die finale Servo-Verkabelung steht in
-[docs/hardware.md](docs/hardware.md); der gesamte Diagnoseweg ist in
+[docs/hardware.md](docs/hardware.md); der historische Diagnoseweg ist in
 [docs/servo_bus_bringup.md](docs/servo_bus_bringup.md) festgehalten. Die
 aktuellen Kinematik- und Gelenkannahmen stehen in
 [docs/kinematics.md](docs/kinematics.md).
@@ -51,7 +49,7 @@ aktuellen Kinematik- und Gelenkannahmen stehen in
 | Datei | Aufgabe |
 | --- | --- |
 | `elroboto.ioc` | Zentrale CubeMX-Konfiguration für Board, Pins, Clock und Peripherie |
-| `App/Src/app.c` | App-Zustandsmaschine fuer Startup-Home-Check, Startup-Unlock, B1-Drive-Home, LED und Logging |
+| `App/Src/app.c` | App-Zustandsmaschine fuer Startup-Home-Check, Startup-Unlock, B1-Drive-Home und Logging |
 | `App/Src/servo.c` | Gelenktabelle, STS3215-Kommandos und Rohwert-Limits |
 | `App/Src/uart.c` | Adapter fuer den CubeMX-initialisierten Servo-UART-Handle |
 | `Core/Src/main.c` | Hardwareinitialisierung und zyklischer Aufruf der Anwendung |

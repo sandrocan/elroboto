@@ -1,14 +1,10 @@
 #include "app.h"
 
 #include "servo.h"
-#include "stm32u5xx_nucleo.h"
 #include "uart.h"
 
 #include <stdio.h>
 
-#define LED_BLINK_SLOW_MS      500U
-#define LED_BLINK_FAST_MS      100U
-#define LED_BLINK_FAULT_MS      50U
 #define BUTTON_DEBOUNCE_MS      50U
 #define STATUS_LOG_PERIOD_MS  1000U
 #define HOME_CHECK_TOLERANCE_TICKS 50U
@@ -23,10 +19,8 @@ typedef enum
   APP_STATE_FAULT
 } App_State;
 
-static uint32_t last_led_toggle_ms;
 static uint32_t last_status_log_ms;
 static uint32_t last_button_event_ms;
-static uint32_t led_blink_period_ms;
 static volatile uint8_t button_event_pending;
 static App_State app_state;
 
@@ -41,10 +35,8 @@ static Servo_Result_t app_drive_home(void);
 
 void App_Init(UART_HandleTypeDef *servo_uart)
 {
-  last_led_toggle_ms = 0U;
   last_status_log_ms = 0U;
   last_button_event_ms = 0U;
-  led_blink_period_ms = LED_BLINK_SLOW_MS;
   button_event_pending = 0U;
   app_state = APP_STATE_INIT;
 
@@ -95,12 +87,6 @@ void App_Process(uint32_t now_ms)
 {
   app_process_button(now_ms);
 
-  if ((uint32_t)(now_ms - last_led_toggle_ms) >= led_blink_period_ms)
-  {
-    last_led_toggle_ms = now_ms;
-    (void)BSP_LED_Toggle(LED_GREEN);
-  }
-
   if ((uint32_t)(now_ms - last_status_log_ms) >= STATUS_LOG_PERIOD_MS)
   {
     last_status_log_ms = now_ms;
@@ -118,26 +104,6 @@ void App_OnButtonInterrupt(void)
 static void app_set_state(App_State next_state)
 {
   app_state = next_state;
-
-  switch (next_state)
-  {
-    case APP_STATE_CHECKING_HOME:
-    case APP_STATE_UNLOCKING:
-    case APP_STATE_HOMING:
-      led_blink_period_ms = LED_BLINK_FAST_MS;
-      break;
-
-    case APP_STATE_FAULT:
-      led_blink_period_ms = LED_BLINK_FAULT_MS;
-      break;
-
-    case APP_STATE_INIT:
-    case APP_STATE_IDLE:
-    default:
-      led_blink_period_ms = LED_BLINK_SLOW_MS;
-      break;
-  }
-
   printf("App state: %s\r\n", app_state_to_string(next_state));
 }
 

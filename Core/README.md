@@ -19,15 +19,14 @@ Core/
 Startpunkt der Anwendung. Die Funktion `main()` führt derzeit aus:
 
 1. `HAL_Init()` initialisiert HAL und Systemtick.
-2. `SystemClock_Config()` konfiguriert den Systemtakt.
-3. `SystemPower_Config()` wählt die SMPS-Stromversorgung.
+2. `SystemPower_Config()` wählt die SMPS-Stromversorgung.
+3. `SystemClock_Config()` konfiguriert den Systemtakt.
 4. `MX_ICACHE_Init()` aktiviert den Instruction Cache.
-5. `BSP_LED_Init()` initialisiert die grüne Benutzer-LED.
-6. `BSP_PB_Init()` initialisiert den Benutzer-Taster mit Interrupt.
-7. `BSP_COM_Init()` richtet USART1 mit 115200 Baud ein.
-8. `App_Init()` initialisiert den Anwendungszustand, die Servo-Gelenktabelle
+5. `BSP_PB_Init()` initialisiert den Benutzer-Taster mit Interrupt.
+6. `BSP_COM_Init()` richtet USART1 mit 115200 Baud ein.
+7. `App_Init()` initialisiert den Anwendungszustand, die Servo-Gelenktabelle
    und den Adapter fuer den bereits initialisierten LPUART1-Handle.
-9. Die Endlosschleife ruft zyklisch `App_Process()` auf.
+8. Die Endlosschleife ruft zyklisch `App_Process()` auf.
 
 Die Anwendung unterscheidet mindestens `INIT`, `CHECKING_HOME`, `IDLE`,
 `UNLOCKING`, `HOMING` und `FAULT`. Die Zeitvergleiche verwenden Differenzen von
@@ -127,7 +126,8 @@ Eigene Anwendung
 
 Beispiele:
 
-- `BSP_LED_Toggle(LED_GREEN)` kennt die LED des konkreten Boards.
+- `BSP_PB_Init(BUTTON_USER, BUTTON_MODE_EXTI)` kennt den Taster des konkreten
+  Boards.
 - `HAL_GPIO_TogglePin(...)` arbeitet mit einem bestimmten GPIO-Port und Pin.
 - Ein direkter Registerzugriff arbeitet ohne diese Abstraktionen.
 

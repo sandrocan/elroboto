@@ -47,18 +47,13 @@ Waveshare GND -> Nucleo GND
 Das Waveshare-Board und der 12-V-Servo werden aus dem separaten 12-V-Netzteil
 versorgt. Es wird keine Versorgungsspannung vom Adapter zum Nucleo gefuehrt.
 
-## Implementierung
+## Historische Implementierung
 
-- `ServoBus/Inc/servo_bus_protocol.h`: Paketkonstanten, Statuspaket und Parser
-- `ServoBus/Src/servo_bus_protocol.c`: Ping-Erzeugung, Checksumme und
-  Streaming-Parser
-- `ServoBus/Inc/servo_bus_transport.h`: STM32-/HAL-nahe Transportfunktionen
-- `ServoBus/Src/servo_bus_transport.c`: begrenzter Ping-Transport und
-  Diagnosefunktionen
-
-Die frueheren Hosttests und lokalen macOS-Diagnosewerkzeuge wurden nach der
-Integration des Servo-Codes in `App/` entfernt. Dieses Dokument beschreibt den
-historischen Bring-up-Weg; die aktuelle App nutzt B1 fuer den Drive-Home-Test.
+Die fruehere separate Servo-Bus-Komponente, die Hosttests und die lokalen
+macOS-Diagnosewerkzeuge wurden nach der Integration des Servo-Codes in `App/`
+entfernt. Dieses Dokument beschreibt den historischen Bring-up-Weg; die
+aktuelle App nutzt `App/Src/servo.c`, `App/Src/uart.c` und B1 fuer den
+Drive-Home-Test.
 
 ## Wichtigste Diagnoseerkenntnis
 

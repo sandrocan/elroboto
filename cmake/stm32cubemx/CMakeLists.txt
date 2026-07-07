@@ -83,11 +83,21 @@ target_link_libraries(STM32_Drivers PUBLIC stm32cubemx)
 # Add STM32CubeMX generated application sources to the project
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE ${MX_Application_Src})
 
+# TESTS -> REMOVE FOR DEPLOYMENT BUILD
+target_sources(${CMAKE_PROJECT_NAME} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../App/Src/tests.c
+)
+
 # Link directories setup
 target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE ${MX_LINK_DIRS})
 
 # Add libraries to the project
 target_link_libraries(${CMAKE_PROJECT_NAME} ${MX_LINK_LIBS})
+
+# Enable printf support for float formatting, e.g. %.2f
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
+    -u _printf_float
+)
 
 # Add the map file to the list of files to be removed with 'clean' target
 set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES ADDITIONAL_CLEAN_FILES ${CMAKE_PROJECT_NAME}.map)

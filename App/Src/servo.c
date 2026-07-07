@@ -30,7 +30,7 @@
 #define SERVO_STATUS_PACKET_LENGTH  6U
 
 #define SERVO_TIMEOUT_TX_MS         100U
-#define SERVO_TIMEOUT_RX_MS         50U
+#define SERVO_TIMEOUT_RX_MS         100U
 
 #define SERVO_INSTRUCTION_WRITE     0x03U
 

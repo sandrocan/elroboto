@@ -63,64 +63,83 @@ static const int8_t kinematics_joint_direction[KINEMATICS_ACTIVE_JOINT_COUNT] =
 /* Private function prototypes                                                */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * @brief Sets a transform matrix to the 4x4 identity matrix.
+ * @param out Pointer to the transform matrix to initialize.
+ * @return None.
+ */
 static void Kinematics_SetIdentity(Kinematics_Transform_t *out);
+
+/**
+ * @brief Multiplies two 4x4 transform matrices using row-by-column multiplication.
+ * @param a Pointer to the left input transform matrix.
+ * @param b Pointer to the right input transform matrix.
+ * @param out Pointer where the resulting transform matrix will be stored.
+ * @return None.
+ */
 static void Kinematics_Multiply(const Kinematics_Transform_t *a, const Kinematics_Transform_t *b, Kinematics_Transform_t *out);
+
+/**
+ * @brief Builds the local transform for one kinematic chain element.
+ *
+ * The function creates the transform from one robot frame to the next robot
+ * frame using the stored translation, fixed URDF rotation, and the current
+ * joint rotation around the local Z axis.
+ *
+ * @param link Pointer to the kinematic chain element.
+ * @param joint_angle_rad Joint angle in radians for active joints, or 0 for fixed links.
+ * @return Local 4x4 transform from the parent frame to the child frame.
+ */
 static Kinematics_Transform_t Kinematics_LinkTransform(const Kinematics_Link_t *link, float joint_angle_rad);
+
+/**
+ * @brief Helper: Returns the configured raw tick direction for an active joint.
+ * @param joint_id Servo joint ID.
+ * @param direction Pointer where the direction multiplier is stored.
+ * @return Servo-style result code.
+ */
 static Servo_Result_t Kinematics_GetJointDirection(uint8_t joint_id, int8_t *direction);
+
+/**
+ * @brief Calculates a raw servo target for a relative joint movement.
+ * @param joint_id Servo joint ID.
+ * @param delta_deg Relative movement angle in degrees.
+ * @param target_raw Pointer where the calculated raw target position is stored.
+ * @return Servo-style result code.
+ */
 static Servo_Result_t Kinematics_CalculateRelativeTargetRaw(uint8_t joint_id, float delta_deg, uint16_t *target_raw);
+
+/**
+ * @brief Rounds a float value to the nearest int32_t value.
+ * @param value Float value to round.
+ * @return Rounded integer value.
+ */
 static int32_t Kinematics_RoundToI32(float value);
 
 /* -------------------------------------------------------------------------- */
 /* Public functions                                                           */
 /* -------------------------------------------------------------------------- */
 
-/**
- * @brief Converts degrees to radians.
- * @param degrees Angle in degrees.
- * @return Angle in radians.
- */
 float Kinematics_DegToRad(float degrees)
 {
     return degrees * (KINEMATICS_PI / 180.0f);
 }
 
-/**
- * @brief Converts radians to degrees.
- * @param radians Angle in radians.
- * @return Angle in degrees.
- */
 float Kinematics_RadToDeg(float radians)
 {
     return radians * (180.0f / KINEMATICS_PI);
 }
 
-/**
- * @brief Converts a relative angle in degrees to a relative servo tick delta.
- * @param degrees Relative angle in degrees.
- * @return Relative tick delta.
- */
 int32_t Kinematics_DegToTickDelta(float degrees)
 {
     return Kinematics_RoundToI32(degrees * KINEMATICS_TICKS_PER_DEG);
 }
 
-/**
- * @brief Converts a relative servo tick delta to a relative angle in degrees.
- * @param ticks Relative tick delta.
- * @return Relative angle in degrees.
- */
 float Kinematics_TickDeltaToDeg(int32_t ticks)
 {
     return ((float)ticks) * KINEMATICS_DEG_PER_TICK;
 }
 
-/**
- * @brief Converts a raw servo position to a joint angle relative to the home position.
- * @param joint_id Servo joint ID.
- * @param raw_position Raw servo position in ticks.
- * @param angle_deg Pointer where the calculated angle in degrees is stored.
- * @return Servo-style result code.
- */
 Servo_Result_t Kinematics_RawToAngleDeg(uint8_t joint_id, uint16_t raw_position, float *angle_deg)
 {
     const Servo_JointConfig_t *joint;
@@ -154,13 +173,6 @@ Servo_Result_t Kinematics_RawToAngleDeg(uint8_t joint_id, uint16_t raw_position,
     return SERVO_RESULT_OK;
 }
 
-/**
- * @brief Converts a joint angle relative to home into a raw servo position.
- * @param joint_id Servo joint ID.
- * @param angle_deg Target angle in degrees relative to home.
- * @param raw_position Pointer where the raw position is stored.
- * @return Servo-style result code.
- */
 Servo_Result_t Kinematics_AngleDegToRaw(uint8_t joint_id, float angle_deg, uint16_t *raw_position)
 {
     const Servo_JointConfig_t *joint;
@@ -202,12 +214,6 @@ Servo_Result_t Kinematics_AngleDegToRaw(uint8_t joint_id, float angle_deg, uint1
     return SERVO_RESULT_OK;
 }
 
-/**
- * @brief Calculates the forward kinematics to the end effector from joint angles in radians.
- * @param joint_rad Array with angles for joints 1 to 4 in radians.
- * @param transform Pointer where the end-effector transform is stored.
- * @return Servo-style result code.
- */
 Servo_Result_t Kinematics_ForwardRad(const float joint_rad[KINEMATICS_ACTIVE_JOINT_COUNT], Kinematics_Transform_t *transform)
 {
     Kinematics_Transform_t total;
@@ -246,12 +252,6 @@ Servo_Result_t Kinematics_ForwardRad(const float joint_rad[KINEMATICS_ACTIVE_JOI
     return SERVO_RESULT_OK;
 }
 
-/**
- * @brief Calculates the forward kinematics to the end effector from joint angles in degrees.
- * @param joint_deg Array with angles for joints 1 to 4 in degrees.
- * @param transform Pointer where the end-effector transform is stored.
- * @return Servo-style result code.
- */
 Servo_Result_t Kinematics_ForwardDeg(const float joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT], Kinematics_Transform_t *transform)
 {
     float joint_rad[KINEMATICS_ACTIVE_JOINT_COUNT];
@@ -269,12 +269,6 @@ Servo_Result_t Kinematics_ForwardDeg(const float joint_deg[KINEMATICS_ACTIVE_JOI
     return Kinematics_ForwardRad(joint_rad, transform);
 }
 
-/**
- * @brief Extracts the XYZ position from a homogeneous transform.
- * @param transform Pointer to the transform.
- * @param position Pointer where the XYZ position is stored.
- * @return Servo-style result code.
- */
 Servo_Result_t Kinematics_GetPosition(const Kinematics_Transform_t *transform, Kinematics_Position_t *position)
 {
     if ((transform == NULL) || (position == NULL))
@@ -289,11 +283,6 @@ Servo_Result_t Kinematics_GetPosition(const Kinematics_Transform_t *transform, K
     return SERVO_RESULT_OK;
 }
 
-/**
- * @brief Reads the current raw servo positions and converts joints 1 to 4 to angles in degrees.
- * @param joint_deg Array where the angles for joints 1 to 4 are stored.
- * @return Servo-style result code.
- */
 Servo_Result_t Kinematics_ReadCurrentJointAnglesDeg(float joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT])
 {
     Servo_Result_t result;
@@ -323,11 +312,6 @@ Servo_Result_t Kinematics_ReadCurrentJointAnglesDeg(float joint_deg[KINEMATICS_A
     return SERVO_RESULT_OK;
 }
 
-/**
- * @brief Reads the current joint angles and calculates the current end-effector transform.
- * @param transform Pointer where the current end-effector transform is stored.
- * @return Servo-style result code.
- */
 Servo_Result_t Kinematics_ReadCurrentEndEffector(Kinematics_Transform_t *transform)
 {
     Servo_Result_t result;
@@ -347,14 +331,6 @@ Servo_Result_t Kinematics_ReadCurrentEndEffector(Kinematics_Transform_t *transfo
     return Kinematics_ForwardDeg(joint_deg, transform);
 }
 
-/**
- * @brief Moves one non-fixed joint by a relative angle in degrees.
- * @param joint_id Servo joint ID.
- * @param delta_deg Relative movement in degrees.
- * @param speed Servo movement speed.
- * @param acceleration Servo movement acceleration.
- * @return Servo-style result code.
- */
 Servo_Result_t Kinematics_MoveJointRelativeDeg(uint8_t joint_id, float delta_deg, uint16_t speed, uint8_t acceleration)
 {
     Servo_Result_t result;
@@ -369,16 +345,6 @@ Servo_Result_t Kinematics_MoveJointRelativeDeg(uint8_t joint_id, float delta_deg
     return Servo_WritePosition(joint_id, target_raw, speed, acceleration);
 }
 
-/**
- * @brief Moves one non-fixed joint by a relative angle and waits until it reaches the target.
- * @param joint_id Servo joint ID.
- * @param delta_deg Relative movement in degrees.
- * @param speed Servo movement speed.
- * @param acceleration Servo movement acceleration.
- * @param tolerance_ticks Allowed target error in servo ticks.
- * @param timeout_ms Maximum wait time in milliseconds.
- * @return Servo-style result code.
- */
 Servo_Result_t Kinematics_MoveJointRelativeDegAndWait(uint8_t joint_id, float delta_deg, uint16_t speed, uint8_t acceleration, uint16_t tolerance_ticks, uint32_t timeout_ms)
 {
     Servo_Result_t result;
@@ -399,14 +365,6 @@ Servo_Result_t Kinematics_MoveJointRelativeDegAndWait(uint8_t joint_id, float de
     return Kinematics_WaitUntilJointReached(joint_id, target_raw, tolerance_ticks, timeout_ms);
 }
 
-/**
- * @brief Moves one non-fixed joint to an angle relative to its home position.
- * @param joint_id Servo joint ID.
- * @param angle_deg Target angle in degrees relative to home.
- * @param speed Servo movement speed.
- * @param acceleration Servo movement acceleration.
- * @return Servo-style result code.
- */
 Servo_Result_t Kinematics_MoveJointToAngleDeg(uint8_t joint_id, float angle_deg, uint16_t speed, uint8_t acceleration)
 {
     Servo_Result_t result;
@@ -421,16 +379,6 @@ Servo_Result_t Kinematics_MoveJointToAngleDeg(uint8_t joint_id, float angle_deg,
     return Servo_WritePosition(joint_id, target_raw, speed, acceleration);
 }
 
-/**
- * @brief Moves one non-fixed joint to an angle relative to home and waits until it reaches the target.
- * @param joint_id Servo joint ID.
- * @param angle_deg Target angle in degrees relative to home.
- * @param speed Servo movement speed.
- * @param acceleration Servo movement acceleration.
- * @param tolerance_ticks Allowed target error in servo ticks.
- * @param timeout_ms Maximum wait time in milliseconds.
- * @return Servo-style result code.
- */
 Servo_Result_t Kinematics_MoveJointToAngleDegAndWait(uint8_t joint_id, float angle_deg, uint16_t speed, uint8_t acceleration, uint16_t tolerance_ticks, uint32_t timeout_ms)
 {
     Servo_Result_t result;
@@ -451,14 +399,6 @@ Servo_Result_t Kinematics_MoveJointToAngleDegAndWait(uint8_t joint_id, float ang
     return Kinematics_WaitUntilJointReached(joint_id, target_raw, tolerance_ticks, timeout_ms);
 }
 
-/**
- * @brief Polls one joint until its current raw position is close to the target.
- * @param joint_id Servo joint ID.
- * @param target_raw Target raw servo position.
- * @param tolerance_ticks Allowed target error in servo ticks.
- * @param timeout_ms Maximum wait time in milliseconds.
- * @return SERVO_RESULT_OK if the target was reached, otherwise an error code.
- */
 Servo_Result_t Kinematics_WaitUntilJointReached(uint8_t joint_id, uint16_t target_raw, uint16_t tolerance_ticks, uint32_t timeout_ms)
 {
     uint32_t start_time = HAL_GetTick();

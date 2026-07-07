@@ -20,3 +20,8 @@ CMakeUserPresets.json
 !.settings/
 
 .vscode/
+.venv/
+
+.settings/
+.metadata/
+*.json

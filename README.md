@@ -28,11 +28,9 @@ konfiguriert, über CMake gebaut und per ST-LINK/SWD programmiert und debuggt.
 | Pfad | Inhalt |
 | --- | --- |
 | `App/` | Eigene Anwendungslogik und Zustände |
-| `ServoBus/` | STS3215-Paketformat, Parser und begrenzter UART-Transport |
+| `ServoBus/` | Historischer Bring-up-Code fuer STS3215-Paketformat, Parser und begrenzten UART-Transport |
 | `Core/` | Hardwareinitialisierung, Interrupt-Einstieg, System- und C-Laufzeit-Anbindung |
 | `docs/` | Hardwarebelegung und protokollierte Bring-up-Erkenntnisse |
-| `tests/` | Hardwareunabhängige Tests der Servo-Protokolllogik |
-| `tools/` | Lokale Diagnosewerkzeuge, unter anderem für macOS |
 | `Drivers/BSP/` | Board Support Package für LED, Taster und Virtual COM Port des Nucleo-Boards |
 | `Drivers/CMSIS/` | ARM-Cortex-M33- und STM32U545-Definitionen auf Registerebene |
 | `Drivers/STM32U5xx_HAL_Driver/` | Hardware Abstraction Layer von ST für GPIO, UART, Clock, Flash usw. |
@@ -56,8 +54,6 @@ aktuellen Kinematik- und Gelenkannahmen stehen in
 | `App/Src/app.c` | App-Zustandsmaschine fuer Startup-Home-Check, Startup-Unlock, B1-Drive-Home, LED und Logging |
 | `App/Src/servo.c` | Gelenktabelle, STS3215-Kommandos und Rohwert-Limits |
 | `App/Src/uart.c` | Adapter fuer den CubeMX-initialisierten Servo-UART-Handle |
-| `ServoBus/Src/servo_bus_protocol.c` | STS3215-Pakete, Checksummen und Antwortparser |
-| `ServoBus/Src/servo_bus_transport.c` | Begrenzter HAL-UART-Transport für das Bring-up |
 | `Core/Src/main.c` | Hardwareinitialisierung und zyklischer Aufruf der Anwendung |
 | `CMakeLists.txt` | Oberste Buildbeschreibung und Platz für eigene Module |
 | `CMakePresets.json` | Vordefinierte Builds `Debug` und `Release` |

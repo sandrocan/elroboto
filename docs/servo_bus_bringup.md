@@ -55,15 +55,10 @@ versorgt. Es wird keine Versorgungsspannung vom Adapter zum Nucleo gefuehrt.
 - `ServoBus/Inc/servo_bus_transport.h`: STM32-/HAL-nahe Transportfunktionen
 - `ServoBus/Src/servo_bus_transport.c`: begrenzter Ping-Transport und
   Diagnosefunktionen
-- `tests/servo_bus_protocol_test.c`: Hosttests fuer Ping, Teilpakete,
-  ungueltige Laengen und falsche Checksummen
-- `tools/servo_bus_probe_macos.c`: rein lesender macOS-USB-Ping fuer die
-  Diagnose des Waveshare-USB-Pfads
 
-B1 startet derzeit einen rein lesenden Scan der IDs 0 bis 253 bei fest
-1.000.000 Baud. Fuer die spaetere Laufzeitsteuerung ist dieser blockierende
-Commissioning-Code durch einen interrupt- oder DMA-basierten Transport zu
-ersetzen.
+Die frueheren Hosttests und lokalen macOS-Diagnosewerkzeuge wurden nach der
+Integration des Servo-Codes in `App/` entfernt. Dieses Dokument beschreibt den
+historischen Bring-up-Weg; die aktuelle App nutzt B1 fuer den Drive-Home-Test.
 
 ## Wichtigste Diagnoseerkenntnis
 

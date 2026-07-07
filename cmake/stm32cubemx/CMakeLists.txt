@@ -86,6 +86,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE ${MX_Application_Src})
 # TESTS -> REMOVE FOR DEPLOYMENT BUILD
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../../App/Src/tests.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../App/Src/kinematics.c
 )
 
 # Link directories setup

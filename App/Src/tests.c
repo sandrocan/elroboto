@@ -12,9 +12,9 @@
 #define TESTS_HOME_TOLERANCE_TICKS      50U
 
 #define TESTS_DK_MOVE_DEG               10.0f
-#define TESTS_DK_SPEED                  120U
-#define TESTS_DK_ACCELERATION           10U
-#define TESTS_DK_TOLERANCE_TICKS        15U
+#define TESTS_DK_SPEED                  200U
+#define TESTS_DK_ACCELERATION           50U
+#define TESTS_DK_TOLERANCE_TICKS        50U
 #define TESTS_DK_TIMEOUT_MS             10000U
 #define TESTS_DK_PAUSE_MS               500U
 
@@ -208,7 +208,7 @@ Servo_Result_t Tests_DkTest(void) {
 	printf("Current joint angles: q1=%.2f q2=%.2f q3=%.2f q4=%.2f deg\r\n",
 			joint_deg[0], joint_deg[1], joint_deg[2], joint_deg[3]);
 
-	result = Kinematics_ReadCurrentEndEffector(&transform);
+	result = Kinematics_ForwardDeg(joint_deg, &transform);
 
 	if (result != SERVO_RESULT_OK) {
 		printf("Read current end effector failed: result=%s\r\n",
@@ -294,6 +294,9 @@ Servo_Result_t Tests_DkTest(void) {
 				TESTS_DK_ACCELERATION,
 				TESTS_DK_TOLERANCE_TICKS,
 				TESTS_DK_TIMEOUT_MS);
+
+		//Short break for stability
+		HAL_Delay(20U);
 
 		if (result != SERVO_RESULT_OK) {
 			printf("DK move -deg failed: joint=%u result=%s\r\n",

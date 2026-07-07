@@ -167,7 +167,7 @@ Servo_Result_t Kinematics_RawToAngleDeg(uint8_t joint_id, uint16_t raw_position,
         return SERVO_RESULT_UNKNOWN_JOINT_ID;
     }
 
-    delta_ticks = (int32_t)raw_position - (int32_t)joint->home_position;
+    delta_ticks = (int32_t)raw_position - (int32_t)joint->home_position_ticks;
     *angle_deg = Kinematics_TickDeltaToDeg(delta_ticks * (int32_t)direction);
 
     return SERVO_RESULT_OK;
@@ -202,10 +202,10 @@ Servo_Result_t Kinematics_AngleDegToRaw(uint8_t joint_id, float angle_deg, uint1
     }
 
     delta_ticks = Kinematics_DegToTickDelta(angle_deg) * (int32_t)direction;
-    target_raw = (int32_t)joint->home_position + delta_ticks;
+    target_raw = (int32_t)joint->home_position_ticks + delta_ticks;
 
-    if ((target_raw < (int32_t)joint->min_position) ||
-        (target_raw > (int32_t)joint->max_position))
+    if ((target_raw < (int32_t)joint->min_position_ticks) ||
+        (target_raw > (int32_t)joint->max_position_ticks))
     {
         return SERVO_RESULT_POSITION_OUT_OF_RANGE;
     }
@@ -571,8 +571,8 @@ static Servo_Result_t Kinematics_CalculateRelativeTargetRaw(uint8_t joint_id, fl
     delta_ticks = Kinematics_DegToTickDelta(delta_deg) * (int32_t)direction;
     target = (int32_t)current_raw + delta_ticks;
 
-    if ((target < (int32_t)joint->min_position) ||
-        (target > (int32_t)joint->max_position))
+    if ((target < (int32_t)joint->min_position_ticks) ||
+        (target > (int32_t)joint->max_position_ticks))
     {
         return SERVO_RESULT_POSITION_OUT_OF_RANGE;
     }

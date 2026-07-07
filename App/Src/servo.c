@@ -44,8 +44,8 @@
 #define SERVO_REGISTER_ACC          0x29U
 #define SERVO_WRITE_POSITION_SIZE   14U
 
-#define SERVO_HOME_SPEED              120U
-#define SERVO_HOME_ACCELERATION       20U
+#define SERVO_HOME_SPEED              200U
+#define SERVO_HOME_ACCELERATION       50U
 #define SERVO_WRIST_ROLL_ID             5U
 #define SERVO_GRIPPER_ID                6U
 /* -------------------------------------------------------------------------- */

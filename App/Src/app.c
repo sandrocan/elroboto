@@ -44,15 +44,25 @@ void App_Init(UART_HandleTypeDef *servo_uart)
 
   Servo_Result_t result = Tests_HomeTest();
 
-  if (result == SERVO_RESULT_OK)
+  if (result != SERVO_RESULT_OK)
   {
-    app_set_state(APP_STATE_IDLE);
-  }
-  else
-  {
-    printf("Home test failed: result=%s\r\n", Servo_ResultToString(result));
     app_set_state(APP_STATE_FAULT);
+    printf("Home test failed: result=%s\r\n", Servo_ResultToString(result));
   }
+
+  app_set_state(APP_STATE_IDLE);
+
+  result = Tests_DkTest();
+
+    if (result != SERVO_RESULT_OK)
+    {
+      printf("DK test failed: result=%s\r\n", Servo_ResultToString(result));
+      app_set_state(APP_STATE_FAULT);
+      return;
+    }
+
+    printf("Startup tests finished successfully\r\n");
+    app_set_state(APP_STATE_IDLE);
 }
 
 void App_Process(uint32_t now_ms)

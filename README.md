@@ -7,20 +7,27 @@ konfiguriert, über CMake gebaut und per ST-LINK/SWD programmiert und debuggt.
 ## Aktueller Stand
 
 - Die grüne Benutzer-LED LD2 wechselt alle 500 ms ihren Zustand.
-- Der Benutzer-Taster B1 wechselt zwischen 500 ms und 100 ms Blinkintervall.
+- Der Benutzer-Taster B1 startet nach dem manuellen Positionieren den
+  Drive-Home-Test.
 - USART1 ist als Virtual COM Port mit 115200 Baud eingerichtet.
 - Nach dem Start erscheint `elroboto booted` auf der seriellen Schnittstelle.
 - Ein Lebenszeichen mit der vergangenen Laufzeit wird einmal pro Sekunde
-  ausgegeben.
+  zusammen mit dem App-Zustand ausgegeben.
 - LPUART1 ist mit 1 Mbit/s fuer den Waveshare Bus Servo Adapter eingerichtet.
 - Ein STS3215 wurde ueber den externen UART erfolgreich als ID 6 gepingt.
-- Der aktuelle B1-Commissioning-Test scannt IDs 0 bis 253 rein lesend.
+- Beim Start liest die Firmware alle Gelenkpositionen und loggt, ob alle
+  Gelenke innerhalb der Home-Toleranz liegen.
+- Danach entsperrt die Firmware alle konfigurierten Gelenke, damit der Arm von
+  Hand in eine Testposition gebracht werden kann.
+- B1 ruft danach `Servo_DriveHome()` auf: alle Gelenke werden erneut
+  entsperrt, alle sechs Home-Positionen werden kommandiert, und nach Erreichen
+  der Home-Positionen werden ID 5 und ID 6 wieder gelockt.
 
 ## Verzeichnisübersicht
 
 | Pfad | Inhalt |
 | --- | --- |
-| `App/` | Eigene, nichtblockierende Anwendungslogik und Zustände |
+| `App/` | Eigene Anwendungslogik und Zustände |
 | `ServoBus/` | STS3215-Paketformat, Parser und begrenzter UART-Transport |
 | `Core/` | Hardwareinitialisierung, Interrupt-Einstieg, System- und C-Laufzeit-Anbindung |
 | `docs/` | Hardwarebelegung und protokollierte Bring-up-Erkenntnisse |
@@ -37,14 +44,18 @@ konfiguriert, über CMake gebaut und per ST-LINK/SWD programmiert und debuggt.
 Mehr Details zu den Dateien in `Core/` stehen in
 [Core/README.md](Core/README.md). Die finale Servo-Verkabelung steht in
 [docs/hardware.md](docs/hardware.md); der gesamte Diagnoseweg ist in
-[docs/servo_bus_bringup.md](docs/servo_bus_bringup.md) festgehalten.
+[docs/servo_bus_bringup.md](docs/servo_bus_bringup.md) festgehalten. Die
+aktuellen Kinematik- und Gelenkannahmen stehen in
+[docs/kinematics.md](docs/kinematics.md).
 
 ## Wichtige Dateien
 
 | Datei | Aufgabe |
 | --- | --- |
 | `elroboto.ioc` | Zentrale CubeMX-Konfiguration für Board, Pins, Clock und Peripherie |
-| `App/Src/app.c` | LED-, Taster- und Logging-Logik der Anwendung |
+| `App/Src/app.c` | App-Zustandsmaschine fuer Startup-Home-Check, Startup-Unlock, B1-Drive-Home, LED und Logging |
+| `App/Src/servo.c` | Gelenktabelle, STS3215-Kommandos und Rohwert-Limits |
+| `App/Src/uart.c` | Adapter fuer den CubeMX-initialisierten Servo-UART-Handle |
 | `ServoBus/Src/servo_bus_protocol.c` | STS3215-Pakete, Checksummen und Antwortparser |
 | `ServoBus/Src/servo_bus_transport.c` | Begrenzter HAL-UART-Transport für das Bring-up |
 | `Core/Src/main.c` | Hardwareinitialisierung und zyklischer Aufruf der Anwendung |

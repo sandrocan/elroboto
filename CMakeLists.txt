@@ -45,6 +45,8 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     App/Src/app.c
+    App/Src/servo.c
+    App/Src/uart.c
     ServoBus/Src/servo_bus_protocol.c
     ServoBus/Src/servo_bus_transport.c
 )

@@ -50,6 +50,10 @@ zusammenhaengender UART-Block empfangen.
 ## Offene Konfiguration
 
 - `TODO(alessandro):` Die getestete ID 6 und die IDs der restlichen STS3215 den
-  jeweiligen Gelenken zuordnen und dokumentieren.
+  jeweiligen Gelenken zuordnen und dokumentieren. Die Firmware enthaelt aktuell
+  die aus dem Kinematikstand importierte vorlaeufige Zuordnung ID 1 bis 6.
 - `TODO(alessandro):` Vor Schreib- oder Bewegungsbefehlen die tatsaechliche
   Baudrate und ID jedes Servos einzeln durch einen reinen Lesezugriff pruefen.
+- `TODO(alessandro):` Den Drive-Home-Test aus `docs/kinematics.md`
+  mit entlastetem Arm, kleiner Geschwindigkeit und physischer Abschaltung
+  durchfuehren und Ergebnis hier dokumentieren.

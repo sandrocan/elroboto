@@ -25,18 +25,21 @@ Startpunkt der Anwendung. Die Funktion `main()` führt derzeit aus:
 5. `BSP_LED_Init()` initialisiert die grüne Benutzer-LED.
 6. `BSP_PB_Init()` initialisiert den Benutzer-Taster mit Interrupt.
 7. `BSP_COM_Init()` richtet USART1 mit 115200 Baud ein.
-8. `App_Init()` initialisiert den Anwendungszustand.
-9. Die Endlosschleife ruft nichtblockierend `App_Process()` auf.
+8. `App_Init()` initialisiert den Anwendungszustand, die Servo-Gelenktabelle
+   und den Adapter fuer den bereits initialisierten LPUART1-Handle.
+9. Die Endlosschleife ruft zyklisch `App_Process()` auf.
 
-Die Zeitvergleiche verwenden Differenzen von `HAL_GetTick()`. Dadurch wartet
-die CPU nicht blockierend und der Überlauf des 32-Bit-Tickzählers wird korrekt
-behandelt.
+Die Anwendung unterscheidet mindestens `INIT`, `CHECKING_HOME`, `IDLE`,
+`UNLOCKING`, `HOMING` und `FAULT`. Die Zeitvergleiche verwenden Differenzen von
+`HAL_GetTick()`. Dadurch wird der Überlauf des 32-Bit-Tickzählers korrekt
+behandelt. Der aktuelle Drive-Home-Test ist bewusst blockierend, weil er als
+manueller Hardwarevalidierungspfad dient.
 
 Der Tasterinterrupt ruft `BSP_PB_Callback()` auf. Die Callback-Funktion meldet
 das Ereignis mit `App_OnButtonInterrupt()` an das App-Modul. Dort wird nur ein
-`volatile` Flag gesetzt. Entprellung, Änderung des Blinkintervalls und Logging
-erfolgen anschließend in `App_Process()`. Dadurch bleibt die
-Interrupt-Verarbeitung kurz und `printf()` wird nicht aus einer ISR aufgerufen.
+`volatile` Flag gesetzt. Entprellung, Drive-Home-Aufruf und Logging erfolgen
+anschließend in `App_Process()`. Dadurch bleibt die Interrupt-Verarbeitung kurz
+und `printf()` wird nicht aus einer ISR aufgerufen.
 
 ### `stm32u5xx_hal_msp.c`
 

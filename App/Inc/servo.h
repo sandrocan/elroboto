@@ -35,7 +35,8 @@ typedef enum
 	SERVO_RESULT_UNKNOWN_JOINT_ID,
 	SERVO_RESULT_JOINT_IS_FIXED,
 	SERVO_RESULT_NULL_POINTER,
-	SERVO_RESULT_TARGET_NOT_REACHED
+	SERVO_RESULT_TARGET_NOT_REACHED,
+	SERVO_RESULT_ABORTED
 } Servo_Result_t;
 
 typedef struct
@@ -113,6 +114,8 @@ Servo_Result_t Servo_DriveHome(void);
  * @return Servo operation result.
  */
 Servo_Result_t Servo_ReadPosition(uint8_t id, uint16_t *position);
+
+Servo_Result_t Servo_ReadPositionRetry(uint8_t id, uint16_t *position);
 
 /**
  * @brief Sends a checked position command to a configured non-fixed joint.

@@ -111,12 +111,21 @@ static Servo_Result_t Servo_WriteByte(uint8_t id, uint8_t address, uint8_t value
  */
 static Servo_Result_t Servo_SendPositionCommand(uint8_t id, uint16_t position, uint16_t speed, uint8_t acceleration);
 
+/**
+ * @brief Reads the current raw position of one servo once without retry handling.
+ * @param id Servo ID to read from.
+ * @param position Pointer where the raw position value is stored.
+ * @return Servo operation result.
+ */
+static Servo_Result_t Servo_ReadPositionOnce(uint8_t id, uint16_t *position);
+
 /* -------------------------------------------------------------------------- */
 /* Public functions (Descriptions in Header)                                                        */
 /* -------------------------------------------------------------------------- */
 
 void Servo_Init(void)
 {
+	// FOLLOWER CONFIG
     static const Servo_JointConfig_t default_joint_table[] =
     {
         {1U, "shoulder_pan",    729U, 2047U, 3391U, 0U},
@@ -126,6 +135,18 @@ void Servo_Init(void)
         {5U, "wrist_roll",     2000U, 2047U, 2200U, 1U},
         {6U, "gripper",         810U,  810U, 2200U, 1U}
     };
+
+//	// LEADER CONFIG
+//	static const Servo_JointConfig_t default_joint_table[] =
+//	{
+//	    {1U, "shoulder_pan",   1086U, 2266U, 3566U, 0U},
+//	    {2U, "shoulder_lift",   864U, 2096U, 3271U, 0U},
+//	    {3U, "elbow_flex",      387U, 1572U, 2615U, 0U},
+//	    {4U, "wrist_flex",      837U, 2066U, 3186U, 0U},
+//	    {5U, "wrist_roll",     2000U, 2047U, 2200U, 1U},
+//	    {6U, "gripper",        1382U, 1992U, 2654U, 1U}
+//	};
+
 
     servo_joint_table = default_joint_table;
     servo_joint_count = (uint8_t)(sizeof(default_joint_table) / sizeof(default_joint_table[0]));
@@ -510,103 +531,47 @@ Servo_Result_t Servo_DriveHome(void)
 
 Servo_Result_t Servo_ReadPosition(uint8_t id, uint16_t *position)
 {
-    uint8_t packet[SERVO_READ_POSITION_PACKET_LENGTH];
-    uint8_t response[SERVO_READ_POSITION_RESPONSE_LENGTH];
-    uint8_t calculated_checksum;
-    HAL_StatusTypeDef tx_status;
-    HAL_StatusTypeDef rx_status;
+    Servo_Result_t result = SERVO_RESULT_RX_TIMEOUT;
 
     if (position == NULL)
     {
         return SERVO_RESULT_NULL_POINTER;
     }
 
-    *position = 0U;
-
-    /*
-     * Read packet:
-     *
-     * FF FF ID LENGTH INSTRUCTION ADDRESS READ_LENGTH CHECKSUM
-     *
-     * LENGTH      = 04
-     * INSTRUCTION = 02 = READ
-     * ADDRESS     = 38 = present position low byte
-     * READ_LENGTH = 02 = two bytes position
-     */
-
-    packet[0] = SERVO_HEADER_1;
-    packet[1] = SERVO_HEADER_2;
-    packet[2] = id;
-    packet[3] = 0x04U;
-    packet[4] = SERVO_INSTRUCTION_READ;
-    packet[5] = SERVO_REGISTER_PRESENT_POSITION;
-    packet[6] = 0x02U;
-    packet[7] = Servo_CalculateChecksum(&packet[2], 5U);
-
-    for (uint8_t i = 0U; i < SERVO_READ_POSITION_RESPONSE_LENGTH; i++)
+    for (uint8_t attempt = 0U; attempt < 5U; attempt++)
     {
-        response[i] = 0U;
+        UartServo_ClearRxBuffer();
+
+        result = Servo_ReadPositionOnce(id, position);
+
+        if (result == SERVO_RESULT_OK)
+        {
+            return SERVO_RESULT_OK;
+        }
+
+        HAL_Delay(20U);
     }
 
-    tx_status = UartServo_SendCommand(
-        packet,
-        SERVO_READ_POSITION_PACKET_LENGTH,
-        SERVO_TIMEOUT_TX_MS
-    );
+    return result;
+}
 
-    if (tx_status != HAL_OK)
+Servo_Result_t Servo_ReadPositionRetry(uint8_t id, uint16_t *position)
+{
+    Servo_Result_t result;
+
+    for (uint8_t attempt = 0U; attempt < 3U; attempt++)
     {
-        return SERVO_RESULT_TX_ERROR;
+        result = Servo_ReadPosition(id, position);
+
+        if (result == SERVO_RESULT_OK)
+        {
+            return SERVO_RESULT_OK;
+        }
+
+        HAL_Delay(20U);
     }
 
-    rx_status = UartServo_ReadResponse(
-        response,
-        SERVO_READ_POSITION_RESPONSE_LENGTH,
-        SERVO_TIMEOUT_RX_MS
-    );
-
-    if (rx_status == HAL_TIMEOUT)
-    {
-        return SERVO_RESULT_RX_TIMEOUT;
-    }
-
-    if (rx_status != HAL_OK)
-    {
-        return SERVO_RESULT_RX_ERROR;
-    }
-
-    if ((response[0] != SERVO_HEADER_1) ||
-        (response[1] != SERVO_HEADER_2))
-    {
-        return SERVO_RESULT_INVALID_HEADER;
-    }
-
-    if (response[2] != id)
-    {
-        return SERVO_RESULT_INVALID_ID;
-    }
-
-    /*
-     * Response:
-     *
-     * FF FF ID LENGTH ERROR POS_L POS_H CHECKSUM
-     */
-    calculated_checksum = Servo_CalculateChecksum(&response[2], 5U);
-
-    if (response[7] != calculated_checksum)
-    {
-        return SERVO_RESULT_INVALID_CHECKSUM;
-    }
-
-    if (response[4] != 0x00U)
-    {
-        return SERVO_RESULT_SERVO_ERROR;
-    }
-
-    *position = (uint16_t)response[5] |
-                ((uint16_t)response[6] << 8U);
-
-    return SERVO_RESULT_OK;
+    return result;
 }
 
 Servo_Result_t Servo_WritePosition(uint8_t id, uint16_t position, uint16_t speed, uint8_t acceleration)
@@ -698,6 +663,9 @@ const char *Servo_ResultToString(Servo_Result_t result)
 
         case SERVO_RESULT_TARGET_NOT_REACHED:
             return "SERVO_RESULT_TARGET_NOT_REACHED";
+
+        case SERVO_RESULT_ABORTED:
+            return "SERVO_RESULT_ABORTED";
 
         default:
             return "SERVO_RESULT_UNKNOWN";
@@ -840,9 +808,13 @@ static const Servo_JointConfig_t *Servo_FindJointById(uint8_t id)
     return NULL;
 }
 
-static Servo_Result_t Servo_SendPositionCommand(uint8_t id, uint16_t position, uint16_t speed, uint8_t acceleration)
+static Servo_Result_t Servo_SendPositionCommand(uint8_t id,
+                                                uint16_t position,
+                                                uint16_t speed,
+                                                uint8_t acceleration)
 {
     uint8_t packet[SERVO_WRITE_POSITION_SIZE];
+    HAL_StatusTypeDef tx_status;
 
     packet[0]  = SERVO_HEADER_1;
     packet[1]  = SERVO_HEADER_2;
@@ -871,7 +843,9 @@ static Servo_Result_t Servo_SendPositionCommand(uint8_t id, uint16_t position, u
 
     servo_last_response_length = 0U;
 
-    HAL_StatusTypeDef tx_status = UartServo_SendCommand(
+    UartServo_ClearRxBuffer();
+
+    tx_status = UartServo_SendCommand(
         packet,
         SERVO_WRITE_POSITION_SIZE,
         SERVO_TIMEOUT_TX_MS
@@ -882,9 +856,59 @@ static Servo_Result_t Servo_SendPositionCommand(uint8_t id, uint16_t position, u
         return SERVO_RESULT_TX_ERROR;
     }
 
-    HAL_StatusTypeDef rx_status = UartServo_ReadResponse(
-        servo_last_response,
-        SERVO_STATUS_PACKET_LENGTH,
+    /*
+     * Do not block motion commands by waiting for a status packet.
+     * If the servo still sends one, give it a short moment and drain it.
+     */
+    HAL_Delay(10U);
+    UartServo_ClearRxBuffer();
+
+    return SERVO_RESULT_OK;
+}
+
+static Servo_Result_t Servo_ReadPositionOnce(uint8_t id, uint16_t *position)
+{
+    uint8_t packet[SERVO_READ_POSITION_PACKET_LENGTH];
+    uint8_t response[SERVO_READ_POSITION_RESPONSE_LENGTH];
+    uint8_t calculated_checksum;
+    HAL_StatusTypeDef tx_status;
+    HAL_StatusTypeDef rx_status;
+
+    if (position == NULL)
+    {
+        return SERVO_RESULT_NULL_POINTER;
+    }
+
+    *position = 0U;
+
+    packet[0] = SERVO_HEADER_1;
+    packet[1] = SERVO_HEADER_2;
+    packet[2] = id;
+    packet[3] = 0x04U;
+    packet[4] = SERVO_INSTRUCTION_READ;
+    packet[5] = SERVO_REGISTER_PRESENT_POSITION;
+    packet[6] = 0x02U;
+    packet[7] = Servo_CalculateChecksum(&packet[2], 5U);
+
+    for (uint8_t i = 0U; i < SERVO_READ_POSITION_RESPONSE_LENGTH; i++)
+    {
+        response[i] = 0U;
+    }
+
+    tx_status = UartServo_SendCommand(
+        packet,
+        SERVO_READ_POSITION_PACKET_LENGTH,
+        SERVO_TIMEOUT_TX_MS
+    );
+
+    if (tx_status != HAL_OK)
+    {
+        return SERVO_RESULT_TX_ERROR;
+    }
+
+    rx_status = UartServo_ReadResponse(
+        response,
+        SERVO_READ_POSITION_RESPONSE_LENGTH,
         SERVO_TIMEOUT_RX_MS
     );
 
@@ -898,9 +922,33 @@ static Servo_Result_t Servo_SendPositionCommand(uint8_t id, uint16_t position, u
         return SERVO_RESULT_RX_ERROR;
     }
 
-    servo_last_response_length = SERVO_STATUS_PACKET_LENGTH;
+    if ((response[0] != SERVO_HEADER_1) ||
+        (response[1] != SERVO_HEADER_2))
+    {
+        return SERVO_RESULT_INVALID_HEADER;
+    }
 
-    return Servo_CheckStatusPacket(id);
+    if (response[2] != id)
+    {
+        return SERVO_RESULT_INVALID_ID;
+    }
+
+    calculated_checksum = Servo_CalculateChecksum(&response[2], 5U);
+
+    if (response[7] != calculated_checksum)
+    {
+        return SERVO_RESULT_INVALID_CHECKSUM;
+    }
+
+    if (response[4] != 0x00U)
+    {
+        return SERVO_RESULT_SERVO_ERROR;
+    }
+
+    *position = (uint16_t)response[5] |
+                ((uint16_t)response[6] << 8U);
+
+    return SERVO_RESULT_OK;
 }
 
 static uint16_t Servo_AbsDiffU16(uint16_t a, uint16_t b)

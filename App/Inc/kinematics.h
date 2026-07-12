@@ -14,24 +14,15 @@ extern "C" {
 #endif
 
 #include "servo.h"
-
+#include "operations.h"
 #include <stdint.h>
 
 #define KINEMATICS_ACTIVE_JOINT_COUNT   4U
-#define KINEMATICS_MATRIX_SIZE          4U
 
 #define KINEMATICS_TICKS_PER_REV        4096.0f
 #define KINEMATICS_DEG_PER_REV          360.0f
 #define KINEMATICS_TICKS_PER_DEG        (KINEMATICS_TICKS_PER_REV / KINEMATICS_DEG_PER_REV)
 #define KINEMATICS_DEG_PER_TICK        (KINEMATICS_DEG_PER_REV / KINEMATICS_TICKS_PER_REV)
-
-/**
- * @brief Stores a 4x4 homogeneous transformation matrix.
- */
-typedef struct
-{
-    float m[KINEMATICS_MATRIX_SIZE][KINEMATICS_MATRIX_SIZE];
-} Kinematics_Transform_t;
 
 /**
  * @brief Stores a 3D Cartesian position.
@@ -42,6 +33,24 @@ typedef struct
     float y;
     float z;
 } Kinematics_Position_t;
+
+/**
+ * @brief Stores configuration parameters for numerical inverse kinematics.
+ */
+typedef struct
+{
+    uint16_t max_iterations;
+    float position_tolerance_m;
+    float finite_difference_step_deg;
+    float damping;
+    float max_step_deg;
+} Kinematics_IkConfig_t;
+
+/**
+ * @brief Callback type used to abort a blocking kinematic wait operation.
+ * @return 0 if the motion should continue, non-zero if the motion should abort.
+ */
+typedef uint8_t (*Kinematics_AbortCallback_t)(void);
 
 /**
  * @brief Converts an angle from degrees to radians.
@@ -114,6 +123,56 @@ Servo_Result_t Kinematics_ForwardDeg(const float joint_deg[KINEMATICS_ACTIVE_JOI
 Servo_Result_t Kinematics_GetPosition(const Kinematics_Transform_t *transform, Kinematics_Position_t *position);
 
 /**
+ * @brief Writes the default numerical inverse kinematics configuration.
+ * @param config Pointer where the default IK configuration will be stored.
+ * @return None.
+ */
+void Kinematics_GetDefaultIkConfig(Kinematics_IkConfig_t *config);
+
+/**
+ * @brief Calculates joint angles for a target end-effector XYZ position.
+ * @param target_position Pointer to the target XYZ position in meters.
+ * @param seed_joint_deg Initial joint angle guess for joints 1 to 4 in degrees.
+ * @param config Pointer to the IK configuration, or NULL to use defaults.
+ * @param result_joint_deg Array where the solved joint angles for joints 1 to 4 are stored.
+ * @return Servo-style result code.
+ */
+Servo_Result_t Kinematics_InversePositionDeg(const Kinematics_Position_t *target_position, const float seed_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT], const Kinematics_IkConfig_t *config, float result_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT]);
+
+/**
+ * @brief Calculates raw servo targets for a target end-effector XYZ position.
+ * @param target_position Pointer to the target XYZ position in meters.
+ * @param seed_joint_deg Initial joint angle guess for joints 1 to 4 in degrees.
+ * @param config Pointer to the IK configuration, or NULL to use defaults.
+ * @param result_raw Array where the solved raw servo targets for joints 1 to 4 are stored.
+ * @return Servo-style result code.
+ */
+Servo_Result_t Kinematics_InversePositionRaw(const Kinematics_Position_t *target_position, const float seed_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT], const Kinematics_IkConfig_t *config, uint16_t result_raw[KINEMATICS_ACTIVE_JOINT_COUNT]);
+
+/**
+ * @brief Moves the end effector toward a target XYZ position using inverse kinematics.
+ * @param target_position Pointer to the target XYZ position in meters.
+ * @param speed Servo movement speed.
+ * @param acceleration Servo movement acceleration.
+ * @param config Pointer to the IK configuration, or NULL to use defaults.
+ * @return Servo-style result code.
+ */
+Servo_Result_t Kinematics_MoveEndEffectorToPosition(const Kinematics_Position_t *target_position, uint16_t speed, uint8_t acceleration, const Kinematics_IkConfig_t *config);
+
+/**
+ * @brief Moves the end effector toward a target XYZ position and waits for all active joints.
+ * @param target_position Pointer to the target XYZ position in meters.
+ * @param speed Servo movement speed.
+ * @param acceleration Servo movement acceleration.
+ * @param tolerance_ticks Allowed target error in servo ticks.
+ * @param timeout_ms Maximum wait time in milliseconds per joint.
+ * @param config Pointer to the IK configuration, or NULL to use defaults.
+ * @return Servo-style result code.
+ */
+Servo_Result_t Kinematics_MoveEndEffectorToPositionAndWait(const Kinematics_Position_t *target_position, uint16_t speed, uint8_t acceleration, uint16_t tolerance_ticks, uint32_t timeout_ms, const Kinematics_IkConfig_t *config, Kinematics_AbortCallback_t abort_callback);
+
+
+/**
  * @brief Reads the current raw servo positions and converts joints 1 to 4 to angles in degrees.
  * @param joint_deg Array where the angles for joints 1 to 4 are stored.
  * @return Servo-style result code.
@@ -147,7 +206,7 @@ Servo_Result_t Kinematics_MoveJointRelativeDeg(uint8_t joint_id, float delta_deg
  * @param timeout_ms Maximum wait time in milliseconds.
  * @return Servo-style result code.
  */
-Servo_Result_t Kinematics_MoveJointRelativeDegAndWait(uint8_t joint_id, float delta_deg, uint16_t speed, uint8_t acceleration, uint16_t tolerance_ticks, uint32_t timeout_ms);
+Servo_Result_t Kinematics_MoveJointRelativeDegAndWait(uint8_t joint_id, float delta_deg, uint16_t speed, uint8_t acceleration, uint16_t tolerance_ticks, uint32_t timeout_ms, Kinematics_AbortCallback_t abort_callback);
 
 /**
  * @brief Moves one non-fixed joint to an angle relative to its home position.
@@ -169,7 +228,7 @@ Servo_Result_t Kinematics_MoveJointToAngleDeg(uint8_t joint_id, float angle_deg,
  * @param timeout_ms Maximum wait time in milliseconds.
  * @return Servo-style result code.
  */
-Servo_Result_t Kinematics_MoveJointToAngleDegAndWait(uint8_t joint_id, float angle_deg, uint16_t speed, uint8_t acceleration, uint16_t tolerance_ticks, uint32_t timeout_ms);
+Servo_Result_t Kinematics_MoveJointToAngleDegAndWait(uint8_t joint_id, float angle_deg, uint16_t speed, uint8_t acceleration, uint16_t tolerance_ticks, uint32_t timeout_ms, Kinematics_AbortCallback_t abort_callback);
 
 /**
  * @brief Polls one joint until its current raw position is close to the target.
@@ -179,7 +238,7 @@ Servo_Result_t Kinematics_MoveJointToAngleDegAndWait(uint8_t joint_id, float ang
  * @param timeout_ms Maximum wait time in milliseconds.
  * @return SERVO_RESULT_OK if the target was reached, otherwise an error code.
  */
-Servo_Result_t Kinematics_WaitUntilJointReached(uint8_t joint_id, uint16_t target_raw, uint16_t tolerance_ticks, uint32_t timeout_ms);
+Servo_Result_t Kinematics_WaitUntilJointReached(uint8_t joint_id, uint16_t target_raw, uint16_t tolerance_ticks, uint32_t timeout_ms, Kinematics_AbortCallback_t abort_callback);
 
 #ifdef __cplusplus
 }

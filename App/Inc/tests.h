@@ -15,10 +15,16 @@ extern "C" {
 Servo_Result_t Tests_HomeTest(void);
 
 /**
- * @brief Runs the direct kinematics movement test sequence.
+ * @brief Tests direct kinematics by moving each active joint forward and back.
  * @return Servo operation result.
  */
 Servo_Result_t Tests_DkTest(void);
+
+/**
+ * @brief Tests inverse kinematics by moving the end effector in X, Y and Z.
+ * @return Servo operation result.
+ */
+Servo_Result_t Tests_IkTest(void);
 
 #ifdef __cplusplus
 }

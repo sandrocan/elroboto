@@ -101,6 +101,13 @@ HAL_StatusTypeDef UartServo_ReadResponse(uint8_t *response, uint16_t length, uin
  */
 UART_HandleTypeDef *UartServo_GetHandle(void);
 
+/**
+ * @brief Clears pending bytes and error flags from the servo UART receive path.
+ * @param None.
+ * @return None.
+ */
+void UartServo_ClearRxBuffer(void);
+
 
 #ifdef __cplusplus
 }

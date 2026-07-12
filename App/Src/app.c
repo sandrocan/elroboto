@@ -7,8 +7,11 @@
 #include <stdio.h>
 
 #define BUTTON_DEBOUNCE_MS      50U
-#define STATUS_LOG_PERIOD_MS  1000U
 #define HOME_CHECK_TOLERANCE_TICKS 50U
+
+#define APP_MOVEMENT_SPEED              300U
+#define APP_MOVEMENT_ACCELERATION       50U
+#define APP_SQUARE_RADIUS_CM            12.0f
 
 typedef enum
 {
@@ -21,61 +24,277 @@ typedef enum
 } App_State;
 
 static uint32_t last_status_log_ms;
-static uint32_t last_button_event_ms;
 static volatile uint8_t button_event_pending;
+static volatile uint32_t last_button_event_ms;
 static App_State app_state;
+static volatile uint8_t app_motion_enabled = 1U;
 
 static void app_set_state(App_State next_state);
 static const char *app_state_to_string(App_State state);
 static void app_process_button(uint32_t now_ms);
 static Servo_Result_t app_unlock_all_joints(void);
+static uint8_t app_motion_abort_requested(void);
+
 
 void App_Init(UART_HandleTypeDef *servo_uart)
 {
-  last_status_log_ms = 0U;
-  last_button_event_ms = 0U;
-  button_event_pending = 0U;
-  app_state = APP_STATE_INIT;
+    Servo_Result_t result;
+    uint16_t target_raw[KINEMATICS_ACTIVE_JOINT_COUNT];
 
-  UartServo_AttachHandle(servo_uart);
-  Servo_Init();
+    last_status_log_ms = 0U;
+    last_button_event_ms = 0U;
+    button_event_pending = 0U;
+    app_state = APP_STATE_INIT;
+    app_motion_enabled = 1U;
 
-  printf("\r\nelroboto booted\r\n");
+    UartServo_AttachHandle(servo_uart);
+    Servo_Init();
 
-  Servo_Result_t result = Tests_HomeTest();
+    printf("\r\nelroboto booted\r\n");
 
-  if (result != SERVO_RESULT_OK)
-  {
-    app_set_state(APP_STATE_FAULT);
-    printf("Home test failed: result=%s\r\n", Servo_ResultToString(result));
-  }
+    target_raw[0] = 2047U;   /* joint 1 */
+    target_raw[1] = 1208U;   /* joint 2 */
+    target_raw[2] = 2548U;   /* joint 3 */
+    target_raw[3] = 2372U;   /* joint 4 */
 
-  app_set_state(APP_STATE_IDLE);
+    printf("Moving to app start position\r\n");
 
-  result = Tests_DkTest();
-
-    if (result != SERVO_RESULT_OK)
+    for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
     {
-      printf("DK test failed: result=%s\r\n", Servo_ResultToString(result));
-      app_set_state(APP_STATE_FAULT);
-      return;
+        uint8_t joint_id = (uint8_t)(i + 1U);
+
+        result = Servo_WritePosition(
+            joint_id,
+            target_raw[i],
+            APP_MOVEMENT_SPEED,
+            APP_MOVEMENT_ACCELERATION
+        );
+
+        if (result != SERVO_RESULT_OK)
+        {
+            printf("Start move write failed: joint=%u result=%s\r\n",
+                   (unsigned int)joint_id,
+                   Servo_ResultToString(result));
+
+            app_set_state(APP_STATE_FAULT);
+            return;
+        }
+
+        HAL_Delay(20U);
     }
 
-    printf("Startup tests finished successfully\r\n");
+    HAL_Delay(300U);
+
+    for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
+    {
+        uint8_t joint_id = (uint8_t)(i + 1U);
+
+        result = Kinematics_WaitUntilJointReached(
+            joint_id,
+            target_raw[i],
+            50U,
+            15000U,
+			app_motion_abort_requested
+        );
+
+        if (result != SERVO_RESULT_OK)
+        {
+            printf("Start move wait failed: joint=%u result=%s\r\n",
+                   (unsigned int)joint_id,
+                   Servo_ResultToString(result));
+
+            app_set_state(APP_STATE_FAULT);
+            return;
+        }
+
+        HAL_Delay(20U);
+    }
+
+    printf("App start position reached\r\n");
+
     app_set_state(APP_STATE_IDLE);
 }
 
 void App_Process(uint32_t now_ms)
 {
-  app_process_button(now_ms);
+    static uint8_t tcp_start_saved = 0U;
+    static uint8_t step_index = 0U;
+    static Kinematics_Position_t tcp_start_position;
 
-  if ((uint32_t)(now_ms - last_status_log_ms) >= STATUS_LOG_PERIOD_MS)
-  {
-    last_status_log_ms = now_ms;
-    printf("elroboto alive: %lu ms, state=%s\r\n",
-           (unsigned long)now_ms,
-           app_state_to_string(app_state));
-  }
+    Servo_Result_t result;
+    Kinematics_Transform_t transform;
+    Kinematics_Position_t target_position;
+    Kinematics_IkConfig_t ik_config;
+    float square_radius_m;
+
+    app_process_button(now_ms);
+
+    if (app_state != APP_STATE_IDLE || app_motion_enabled == 0U)
+    {
+        return;
+    }
+
+    square_radius_m = APP_SQUARE_RADIUS_CM / 100.0f;
+
+    Kinematics_GetDefaultIkConfig(&ik_config);
+    ik_config.position_tolerance_m = 0.005f;
+    ik_config.max_iterations = 200U;
+    ik_config.max_step_deg = 5.0f;
+    ik_config.finite_difference_step_deg = 0.5f;
+    ik_config.damping = 0.02f;
+
+    if (tcp_start_saved == 0U)
+    {
+        float start_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT];
+
+        result = Kinematics_RawToAngleDeg(1U, 2047U, &start_joint_deg[0]);
+        if (result != SERVO_RESULT_OK)
+        {
+            printf("Start raw to angle failed: joint=1 result=%s\r\n",
+                   Servo_ResultToString(result));
+
+            app_set_state(APP_STATE_FAULT);
+            return;
+        }
+
+        result = Kinematics_RawToAngleDeg(2U, 1208U, &start_joint_deg[1]);
+        if (result != SERVO_RESULT_OK)
+        {
+            printf("Start raw to angle failed: joint=2 result=%s\r\n",
+                   Servo_ResultToString(result));
+
+            app_set_state(APP_STATE_FAULT);
+            return;
+        }
+
+        result = Kinematics_RawToAngleDeg(3U, 2548U, &start_joint_deg[2]);
+        if (result != SERVO_RESULT_OK)
+        {
+            printf("Start raw to angle failed: joint=3 result=%s\r\n",
+                   Servo_ResultToString(result));
+
+            app_set_state(APP_STATE_FAULT);
+            return;
+        }
+
+        result = Kinematics_RawToAngleDeg(4U, 2372U, &start_joint_deg[3]);
+        if (result != SERVO_RESULT_OK)
+        {
+            printf("Start raw to angle failed: joint=4 result=%s\r\n",
+                   Servo_ResultToString(result));
+
+            app_set_state(APP_STATE_FAULT);
+            return;
+        }
+
+        result = Kinematics_ForwardDeg(start_joint_deg, &transform);
+        if (result != SERVO_RESULT_OK)
+        {
+            printf("Start FK failed: result=%s\r\n",
+                   Servo_ResultToString(result));
+
+            app_set_state(APP_STATE_FAULT);
+            return;
+        }
+
+        result = Kinematics_GetPosition(&transform, &tcp_start_position);
+        if (result != SERVO_RESULT_OK)
+        {
+            printf("Start TCP extract failed: result=%s\r\n",
+                   Servo_ResultToString(result));
+
+            app_set_state(APP_STATE_FAULT);
+            return;
+        }
+
+        printf("TCP start calculated: x=%.6f y=%.6f z=%.6f\r\n",
+               tcp_start_position.x,
+               tcp_start_position.y,
+               tcp_start_position.z);
+
+        tcp_start_saved = 1U;
+    }
+
+    target_position = tcp_start_position;
+
+    if (step_index == 0U)
+    {
+        target_position.y -= square_radius_m;
+        target_position.z += square_radius_m;
+
+        printf("Square step 0: up-left target: x=%.6f y=%.6f z=%.6f\r\n",
+               target_position.x,
+               target_position.y,
+               target_position.z);
+    }
+    else if (step_index == 1U)
+    {
+        target_position.y += square_radius_m;
+        target_position.z += square_radius_m;
+
+        printf("Square step 1: up-right target: x=%.6f y=%.6f z=%.6f\r\n",
+               target_position.x,
+               target_position.y,
+               target_position.z);
+    }
+    else if (step_index == 2U)
+    {
+        target_position.y += square_radius_m;
+        target_position.z -= square_radius_m;
+
+        printf("Square step 2: down-right target: x=%.6f y=%.6f z=%.6f\r\n",
+               target_position.x,
+               target_position.y,
+               target_position.z);
+    }
+    else
+    {
+        target_position.y -= square_radius_m;
+        target_position.z -= square_radius_m;
+
+        printf("Square step 3: down-left target: x=%.6f y=%.6f z=%.6f\r\n",
+               target_position.x,
+               target_position.y,
+               target_position.z);
+    }
+
+    result = Kinematics_MoveEndEffectorToPositionAndWait(
+        &target_position,
+        APP_MOVEMENT_SPEED,
+        APP_MOVEMENT_ACCELERATION,
+		50U,
+		20000U,
+        &ik_config,
+		app_motion_abort_requested
+    );
+
+    app_process_button(HAL_GetTick());
+
+    if (result != SERVO_RESULT_OK)
+    {
+        printf("Square TCP move failed: step=%u result=%s\r\n",
+               (unsigned int)step_index,
+               Servo_ResultToString(result));
+
+        app_set_state(APP_STATE_FAULT);
+        return;
+    }
+
+    step_index++;
+    if (step_index >= 4U)
+    {
+        step_index = 0U;
+    }
+
+    HAL_Delay(50U);
+
+    app_process_button(HAL_GetTick());
+
+    if (app_motion_enabled == 0U)
+    {
+        return;
+    }
+
 }
 
 void App_OnButtonInterrupt(void)
@@ -118,28 +337,38 @@ static const char *app_state_to_string(App_State state)
 
 static void app_process_button(uint32_t now_ms)
 {
-  if (button_event_pending == 0U)
-  {
-    return;
-  }
+    Servo_Result_t result;
 
-  button_event_pending = 0U;
+    if (button_event_pending == 0U)
+    {
+        return;
+    }
 
-  if ((uint32_t)(now_ms - last_button_event_ms) < BUTTON_DEBOUNCE_MS)
-  {
-    return;
-  }
+    button_event_pending = 0U;
 
-  if (app_state == APP_STATE_IDLE)
-  {
-    (void)app_unlock_all_joints();
-  }
-  else
-  {
-    printf("B1 ignored while state=%s\r\n", app_state_to_string(app_state));
-  }
+    if ((uint32_t)(now_ms - last_button_event_ms) < BUTTON_DEBOUNCE_MS)
+    {
+        return;
+    }
 
-  last_button_event_ms = now_ms;
+    last_button_event_ms = now_ms;
+
+    app_motion_enabled = 0U;
+
+    printf("B1 pressed: motion disabled, unlocking all joints\r\n");
+
+    result = app_unlock_all_joints();
+
+    if (result != SERVO_RESULT_OK)
+    {
+        printf("B1 unlock failed: result=%s\r\n",
+               Servo_ResultToString(result));
+
+        app_set_state(APP_STATE_FAULT);
+        return;
+    }
+
+    printf("B1 unlock done\r\n");
 }
 
 static Servo_Result_t app_unlock_all_joints(void)
@@ -183,4 +412,16 @@ static Servo_Result_t app_unlock_all_joints(void)
          Servo_ResultToString(first_error));
 
   return first_error;
+}
+
+static uint8_t app_motion_abort_requested(void)
+{
+    app_process_button(HAL_GetTick());
+
+    if (app_motion_enabled == 0U)
+    {
+        return 1U;
+    }
+
+    return 0U;
 }

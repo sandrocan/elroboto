@@ -93,3 +93,26 @@ UART_HandleTypeDef *UartServo_GetHandle(void)
 {
     return servo_uart;
 }
+
+void UartServo_ClearRxBuffer(void)
+{
+    uint8_t dummy;
+
+    if (servo_uart == NULL)
+    {
+        return;
+    }
+
+    (void)HAL_UART_AbortReceive(servo_uart);
+
+    //Clear UART ERROR flags
+    __HAL_UART_CLEAR_OREFLAG(servo_uart);
+    __HAL_UART_CLEAR_FEFLAG(servo_uart);
+    __HAL_UART_CLEAR_NEFLAG(servo_uart);
+    __HAL_UART_CLEAR_PEFLAG(servo_uart);
+
+    while (HAL_UART_Receive(servo_uart, &dummy, 1U, 1U) == HAL_OK)
+    {
+        //Drain stale RX bytes
+    }
+}

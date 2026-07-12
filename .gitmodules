@@ -1,0 +1,6 @@
+[submodule "THirdParty/CMSIS_DEP"]
+	path = THirdParty/CMSIS_DEP
+	url = https://github.com/ARM-software/CMSIS-DSP.git
+[submodule "ThirdParty/CMSIS_DEP"]
+	path = ThirdParty/CMSIS_DEP
+	url = https://github.com/ARM-software/CMSIS-DSP.git

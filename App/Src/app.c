@@ -2,9 +2,11 @@
 #include "kinematics.h"
 #include "servo.h"
 #include "uart.h"
+
 #include "tests.h"
 
 #include <stdio.h>
+#include <stdint.h>
 
 #define BUTTON_DEBOUNCE_MS      50U
 #define HOME_CHECK_TOLERANCE_TICKS 50U
@@ -20,7 +22,7 @@ typedef enum
   APP_STATE_IDLE,
   APP_STATE_UNLOCKING,
   APP_STATE_HOMING,
-  APP_STATE_FAULT
+  APP_STATE_FhowAULT
 } App_State;
 
 static uint32_t last_status_log_ms;
@@ -29,11 +31,39 @@ static volatile uint32_t last_button_event_ms;
 static App_State app_state;
 static volatile uint8_t app_motion_enabled = 1U;
 
+//static uint8_t app_benchmark_done = 0U;
+
 static void app_set_state(App_State next_state);
 static const char *app_state_to_string(App_State state);
 static void app_process_button(uint32_t now_ms);
 static Servo_Result_t app_unlock_all_joints(void);
 static uint8_t app_motion_abort_requested(void);
+
+
+
+/* -------------------------------------------------------------------------- */
+/* START: Benchmarking - Keep commented out                                   */
+/* -------------------------------------------------------------------------- */
+//void App_Init(UART_HandleTypeDef *servo_uart)
+//{
+//	UartServo_AttachHandle(servo_uart);
+//	Servo_Init();
+//	Tests_Benchmarks();
+//}
+//void App_Process(uint32_t now_ms)
+//{
+//    (void)now_ms;
+//    if (app_benchmark_done == 0U)
+//    {
+//        return;
+//    }
+//}
+/* -------------------------------------------------------------------------- */
+/* END: Benchmarking - Keep commented out                                     */
+/* -------------------------------------------------------------------------- */
+
+
+
 
 
 void App_Init(UART_HandleTypeDef *servo_uart)

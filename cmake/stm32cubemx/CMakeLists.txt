@@ -85,7 +85,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE ${MX_Application_Src})
 
 # TESTS -> REMOVE FOR DEPLOYMENT BUILD
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-#    ${CMAKE_CURRENT_SOURCE_DIR}/../../App/Src/tests.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../App/Src/tests.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../App/Src/kinematics.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../App/Src/operations.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../App/Src/kin_benchmarks.c
@@ -109,3 +109,32 @@ set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES ADDITIONAL_CLEAN_FILES ${
 if((CMAKE_C_STANDARD EQUAL 90) OR (CMAKE_C_STANDARD EQUAL 99))
     message(ERROR "Generated code requires C11 or higher")
 endif()
+
+# ---------------------------------------------------------------------------
+# CMSIS-DSP minimal integration
+# ---------------------------------------------------------------------------
+
+set(CMSIS_DSP_DIR ${CMAKE_SOURCE_DIR}/ThirdParty/CMSIS_DSP)
+
+message(STATUS "CMSIS-DSP path: ${CMSIS_DSP_DIR}")
+
+if(NOT EXISTS ${CMSIS_DSP_DIR}/Include/arm_math.h)
+    message(FATAL_ERROR "CMSIS-DSP arm_math.h not found at: ${CMSIS_DSP_DIR}/Include/arm_math.h")
+endif()
+
+target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
+    OPERATIONS_USE_CMSIS_DSP
+    ARM_MATH_ARMV8MML
+    DISABLEFLOAT16
+)
+
+target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
+    ${CMSIS_DSP_DIR}/Include
+    ${CMSIS_DSP_DIR}/PrivateInclude
+)
+
+target_sources(${CMAKE_PROJECT_NAME} PRIVATE
+    ${CMSIS_DSP_DIR}/Source/FastMathFunctions/arm_sin_f32.c
+    ${CMSIS_DSP_DIR}/Source/FastMathFunctions/arm_cos_f32.c
+    ${CMSIS_DSP_DIR}/Source/CommonTables/arm_common_tables.c
+)

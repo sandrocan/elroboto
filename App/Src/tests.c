@@ -1,6 +1,8 @@
 #include "tests.h"
-
+#include "kin_benchmarks.h"
 #include "kinematics.h"
+#include "operations.h"
+#include "uart.h"
 
 #include <stdio.h>
 #include <stdint.h>
@@ -29,6 +31,8 @@
 #define TESTS_IK_COMMAND_SETTLE_MS      100U
 #define TESTS_IK_SEED_COUNT             5U
 
+#define APP_BENCHMARK_ITERATIONS 1000U
+
 /*
  * Servo_JointConfig_t field adapter.
  */
@@ -39,6 +43,228 @@
 /* -------------------------------------------------------------------------- */
 /* Public test functions                                                      */
 /* -------------------------------------------------------------------------- */
+
+void Tests_Benchmarks(void)
+{
+	const kin_benchmark_config_t benchmark_configs[] =
+	{
+		{
+			.name = "baseline_standard_baseline_matmul",
+			.trig_mode = OP_TRIG_STANDARD,
+			.matmul_mode = OP_MATMUL_BASELINE,
+			.use_direct_formula = 0U,
+			.iterations = APP_BENCHMARK_ITERATIONS
+		},
+		{
+			.name = "standard_optimized_matmul",
+			.trig_mode = OP_TRIG_STANDARD,
+			.matmul_mode = OP_MATMUL_OPTIMIZED,
+			.use_direct_formula = 0U,
+			.iterations = APP_BENCHMARK_ITERATIONS
+		},
+		{
+			.name = "standard_homogeneous_matmul",
+			.trig_mode = OP_TRIG_STANDARD,
+			.matmul_mode = OP_MATMUL_HOMOGENEOUS,
+			.use_direct_formula = 0U,
+			.iterations = APP_BENCHMARK_ITERATIONS
+		},
+		{
+			.name = "lookup_baseline_matmul",
+			.trig_mode = OP_TRIG_LOOKUP,
+			.matmul_mode = OP_MATMUL_BASELINE,
+			.use_direct_formula = 0U,
+			.iterations = APP_BENCHMARK_ITERATIONS
+		},
+		{
+			.name = "lookup_optimized_matmul",
+			.trig_mode = OP_TRIG_LOOKUP,
+			.matmul_mode = OP_MATMUL_OPTIMIZED,
+			.use_direct_formula = 0U,
+			.iterations = APP_BENCHMARK_ITERATIONS
+		},
+		{
+			.name = "lookup_homogeneous_matmul",
+			.trig_mode = OP_TRIG_LOOKUP,
+			.matmul_mode = OP_MATMUL_HOMOGENEOUS,
+			.use_direct_formula = 0U,
+			.iterations = APP_BENCHMARK_ITERATIONS
+		},
+		{
+			.name = "arm_fast_baseline_matmul",
+			.trig_mode = OP_TRIG_ARM_FAST,
+			.matmul_mode = OP_MATMUL_BASELINE,
+			.use_direct_formula = 0U,
+			.iterations = APP_BENCHMARK_ITERATIONS
+		},
+		{
+			.name = "arm_fast_optimized_matmul",
+			.trig_mode = OP_TRIG_ARM_FAST,
+			.matmul_mode = OP_MATMUL_OPTIMIZED,
+			.use_direct_formula = 0U,
+			.iterations = APP_BENCHMARK_ITERATIONS
+		},
+		{
+			.name = "arm_fast_homogeneous_matmul",
+			.trig_mode = OP_TRIG_ARM_FAST,
+			.matmul_mode = OP_MATMUL_HOMOGENEOUS,
+			.use_direct_formula = 0U,
+			.iterations = APP_BENCHMARK_ITERATIONS
+		},
+
+		/*
+		 * Now the same setups again, but with direct formula enabled.
+		 * This is useful to see if skipping the generic transform chain helps.
+		 */
+		{
+			.name = "direct_standard_baseline_matmul",
+			.trig_mode = OP_TRIG_STANDARD,
+			.matmul_mode = OP_MATMUL_BASELINE,
+			.use_direct_formula = 1U,
+			.iterations = APP_BENCHMARK_ITERATIONS
+		},
+		{
+			.name = "direct_standard_optimized_matmul",
+			.trig_mode = OP_TRIG_STANDARD,
+			.matmul_mode = OP_MATMUL_OPTIMIZED,
+			.use_direct_formula = 1U,
+			.iterations = APP_BENCHMARK_ITERATIONS
+		},
+		{
+			.name = "direct_standard_homogeneous_matmul",
+			.trig_mode = OP_TRIG_STANDARD,
+			.matmul_mode = OP_MATMUL_HOMOGENEOUS,
+			.use_direct_formula = 1U,
+			.iterations = APP_BENCHMARK_ITERATIONS
+		},
+		{
+			.name = "direct_lookup_baseline_matmul",
+			.trig_mode = OP_TRIG_LOOKUP,
+			.matmul_mode = OP_MATMUL_BASELINE,
+			.use_direct_formula = 1U,
+			.iterations = APP_BENCHMARK_ITERATIONS
+		},
+		{
+			.name = "direct_lookup_optimized_matmul",
+			.trig_mode = OP_TRIG_LOOKUP,
+			.matmul_mode = OP_MATMUL_OPTIMIZED,
+			.use_direct_formula = 1U,
+			.iterations = APP_BENCHMARK_ITERATIONS
+		},
+		{
+			.name = "direct_lookup_homogeneous_matmul",
+			.trig_mode = OP_TRIG_LOOKUP,
+			.matmul_mode = OP_MATMUL_HOMOGENEOUS,
+			.use_direct_formula = 1U,
+			.iterations = APP_BENCHMARK_ITERATIONS
+		},
+		{
+			.name = "direct_arm_fast_baseline_matmul",
+			.trig_mode = OP_TRIG_ARM_FAST,
+			.matmul_mode = OP_MATMUL_BASELINE,
+			.use_direct_formula = 1U,
+			.iterations = APP_BENCHMARK_ITERATIONS
+		},
+		{
+			.name = "direct_arm_fast_optimized_matmul",
+			.trig_mode = OP_TRIG_ARM_FAST,
+			.matmul_mode = OP_MATMUL_OPTIMIZED,
+			.use_direct_formula = 1U,
+			.iterations = APP_BENCHMARK_ITERATIONS
+		},
+		{
+			.name = "direct_arm_fast_homogeneous_matmul",
+			.trig_mode = OP_TRIG_ARM_FAST,
+			.matmul_mode = OP_MATMUL_HOMOGENEOUS,
+			.use_direct_formula = 1U,
+			.iterations = APP_BENCHMARK_ITERATIONS
+		}
+	};
+
+	UartDebug_SendString("\r\n");
+	UartDebug_SendString("==================================================\r\n");
+	UartDebug_SendString("elroboto full benchmark app booted\r\n");
+	UartDebug_SendString("no servo movement will be started here\r\n");
+	UartDebug_SendString("==================================================\r\n");
+	UartDebug_SendString("\r\n");
+
+	/*
+	 * First test all trigonometry backends alone.
+	 * This tells us how expensive sin/cos are without FK or IK around it.
+	 */
+	UartDebug_SendString("\r\n--- single trig benchmarks ---\r\n");
+	KinematicBenchmark_RunSinTest(OP_TRIG_STANDARD);
+	KinematicBenchmark_RunSinTest(OP_TRIG_LOOKUP);
+	KinematicBenchmark_RunSinTest(OP_TRIG_ARM_FAST);
+
+	KinematicBenchmark_RunCosTest(OP_TRIG_STANDARD);
+	KinematicBenchmark_RunCosTest(OP_TRIG_LOOKUP);
+	KinematicBenchmark_RunCosTest(OP_TRIG_ARM_FAST);
+
+	/*
+	 * Now test all matrix multiplication backends alone.
+	 * This isolates the matrix part from the kinematics code.
+	 */
+	UartDebug_SendString("\r\n--- single matrix benchmarks ---\r\n");
+	KinematicBenchmark_RunMatMulTest(OP_MATMUL_BASELINE);
+	KinematicBenchmark_RunMatMulTest(OP_MATMUL_OPTIMIZED);
+	KinematicBenchmark_RunMatMulTest(OP_MATMUL_HOMOGENEOUS);
+
+	/*
+	 * Now run FK for every trig and matrix combination.
+	 * These tests still use only dummy joint angles from the benchmark code.
+	 */
+	UartDebug_SendString("\r\n--- single FK benchmarks ---\r\n");
+
+	KinematicBenchmark_RunFKTest(OP_TRIG_STANDARD, OP_MATMUL_BASELINE);
+	KinematicBenchmark_RunFKTest(OP_TRIG_STANDARD, OP_MATMUL_OPTIMIZED);
+	KinematicBenchmark_RunFKTest(OP_TRIG_STANDARD, OP_MATMUL_HOMOGENEOUS);
+
+	KinematicBenchmark_RunFKTest(OP_TRIG_LOOKUP, OP_MATMUL_BASELINE);
+	KinematicBenchmark_RunFKTest(OP_TRIG_LOOKUP, OP_MATMUL_OPTIMIZED);
+	KinematicBenchmark_RunFKTest(OP_TRIG_LOOKUP, OP_MATMUL_HOMOGENEOUS);
+
+	KinematicBenchmark_RunFKTest(OP_TRIG_ARM_FAST, OP_MATMUL_BASELINE);
+	KinematicBenchmark_RunFKTest(OP_TRIG_ARM_FAST, OP_MATMUL_OPTIMIZED);
+	KinematicBenchmark_RunFKTest(OP_TRIG_ARM_FAST, OP_MATMUL_HOMOGENEOUS);
+
+	/*
+	 * Now run IK for every trig and matrix combination.
+	 * This uses dummy targets and does not write servo positions.
+	 */
+	UartDebug_SendString("\r\n--- single IK benchmarks ---\r\n");
+
+	KinematicBenchmark_RunIKTest(OP_TRIG_STANDARD, OP_MATMUL_BASELINE);
+	KinematicBenchmark_RunIKTest(OP_TRIG_STANDARD, OP_MATMUL_OPTIMIZED);
+	KinematicBenchmark_RunIKTest(OP_TRIG_STANDARD, OP_MATMUL_HOMOGENEOUS);
+
+	KinematicBenchmark_RunIKTest(OP_TRIG_LOOKUP, OP_MATMUL_BASELINE);
+	KinematicBenchmark_RunIKTest(OP_TRIG_LOOKUP, OP_MATMUL_OPTIMIZED);
+	KinematicBenchmark_RunIKTest(OP_TRIG_LOOKUP, OP_MATMUL_HOMOGENEOUS);
+
+	KinematicBenchmark_RunIKTest(OP_TRIG_ARM_FAST, OP_MATMUL_BASELINE);
+	KinematicBenchmark_RunIKTest(OP_TRIG_ARM_FAST, OP_MATMUL_OPTIMIZED);
+	KinematicBenchmark_RunIKTest(OP_TRIG_ARM_FAST, OP_MATMUL_HOMOGENEOUS);
+
+	/*
+	 * Now run the config-style benchmark table.
+	 * This gives one clean named result per complete setup.
+	 */
+	UartDebug_SendString("\r\n--- full config benchmarks ---\r\n");
+
+	for (uint8_t i = 0U; i < (uint8_t)(sizeof(benchmark_configs) / sizeof(benchmark_configs[0])); i++)
+	{
+		KinematicBenchmark_RunConfig(&benchmark_configs[i]);
+	}
+
+	UartDebug_SendString("\r\n");
+	UartDebug_SendString("==================================================\r\n");
+	UartDebug_SendString("all kinematics benchmarks finished\r\n");
+	UartDebug_SendString("App_Process can now stay idle\r\n");
+	UartDebug_SendString("==================================================\r\n");
+	UartDebug_SendString("\r\n");
+
+}
 
 Servo_Result_t Tests_HomeTest(void)
 {

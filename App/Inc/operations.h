@@ -3,8 +3,8 @@
  * @file           : operations.h / operations.c
  * @author         : Niklas Peter
  * @brief          : All relevant math operations for kinematics
- * 					 -> Additional versions of the same operations for
- * 					 optimization purposes
+ *                   -> Additional versions of the same operations for
+ *                   optimization purposes
  ******************************************************************************
  */
 #ifndef OPERATIONS_H_
@@ -16,9 +16,30 @@ extern "C" {
 
 #include <stdint.h>
 
-#define KINEMATICS_MATRIX_SIZE   4U
-#define OPERATIONS_PI            3.14159265358979323846f
-#define OPERATIONS_DETERMINANT_EPSILON   1.0e-12f
+#define KINEMATICS_MATRIX_SIZE          4U
+#define OPERATIONS_PI                   3.14159265358979323846f
+#define OPERATIONS_TWO_PI               6.28318530717958647692f
+#define OPERATIONS_DETERMINANT_EPSILON  1.0e-12f
+
+/**
+ * @brief Selects which sine/cosine implementation is used by configurable math.
+ */
+typedef enum
+{
+    OP_TRIG_STANDARD = 0,
+    OP_TRIG_ARM_FAST,
+    OP_TRIG_LOOKUP
+} op_trig_mode_t;
+
+/**
+ * @brief Selects which 4x4 matrix multiplication implementation is used.
+ */
+typedef enum
+{
+    OP_MATMUL_BASELINE = 0,
+    OP_MATMUL_OPTIMIZED,
+    OP_MATMUL_HOMOGENEOUS
+} op_matmul_mode_t;
 
 /**
  * @brief Stores a 4x4 homogeneous transformation matrix.
@@ -40,6 +61,10 @@ typedef struct
     float pitch;
     float yaw;
 } Operations_LinkPose_t;
+
+/* -------------------------------------------------------------------------- */
+/* Existing project-compatible API                                            */
+/* -------------------------------------------------------------------------- */
 
 /**
  * @brief Sets a transform matrix to the 4x4 identity matrix.
@@ -80,6 +105,67 @@ int32_t Operations_RoundToI32(float value);
  * @return 1 if the matrix was inverted, otherwise 0.
  */
 uint8_t Operations_Invert3x3(const float in[3][3], float out[3][3]);
+
+/* -------------------------------------------------------------------------- */
+/* Benchmark / configurable math API                                          */
+/* -------------------------------------------------------------------------- */
+
+float op_sin_standard(float x);
+float op_cos_standard(float x);
+
+float op_sin_arm_fast(float x);
+float op_cos_arm_fast(float x);
+
+float op_sin_lookup(float x);
+float op_cos_lookup(float x);
+
+float op_sin(float x, op_trig_mode_t mode);
+float op_cos(float x, op_trig_mode_t mode);
+
+const char *op_trig_mode_name(op_trig_mode_t mode);
+const char *op_matmul_mode_name(op_matmul_mode_t mode);
+
+void op_mat4_identity(float M[KINEMATICS_MATRIX_SIZE][KINEMATICS_MATRIX_SIZE]);
+
+void op_mat4_mul_baseline(
+    const float A[KINEMATICS_MATRIX_SIZE][KINEMATICS_MATRIX_SIZE],
+    const float B[KINEMATICS_MATRIX_SIZE][KINEMATICS_MATRIX_SIZE],
+    float C[KINEMATICS_MATRIX_SIZE][KINEMATICS_MATRIX_SIZE]
+);
+
+void op_mat4_mul_optimized(
+    const float A[KINEMATICS_MATRIX_SIZE][KINEMATICS_MATRIX_SIZE],
+    const float B[KINEMATICS_MATRIX_SIZE][KINEMATICS_MATRIX_SIZE],
+    float C[KINEMATICS_MATRIX_SIZE][KINEMATICS_MATRIX_SIZE]
+);
+
+void op_mat4_mul_homogeneous(
+    const float A[KINEMATICS_MATRIX_SIZE][KINEMATICS_MATRIX_SIZE],
+    const float B[KINEMATICS_MATRIX_SIZE][KINEMATICS_MATRIX_SIZE],
+    float C[KINEMATICS_MATRIX_SIZE][KINEMATICS_MATRIX_SIZE]
+);
+
+void op_mat4_mul(
+    const float A[KINEMATICS_MATRIX_SIZE][KINEMATICS_MATRIX_SIZE],
+    const float B[KINEMATICS_MATRIX_SIZE][KINEMATICS_MATRIX_SIZE],
+    float C[KINEMATICS_MATRIX_SIZE][KINEMATICS_MATRIX_SIZE],
+    op_matmul_mode_t mode
+);
+
+/**
+ * @brief Builds one local transform with selectable sine/cosine implementation.
+ * @param link Fixed link pose.
+ * @param joint_angle_rad Active joint angle in radians, or 0 for fixed links.
+ * @param out Output transform.
+ * @param trig_mode Sine/cosine implementation to use.
+ * @return None.
+ */
+void Operations_LinkTransformMode(
+    const Operations_LinkPose_t *link,
+    float joint_angle_rad,
+    Kinematics_Transform_t *out,
+    op_trig_mode_t trig_mode
+);
 
 #ifdef __cplusplus
 }

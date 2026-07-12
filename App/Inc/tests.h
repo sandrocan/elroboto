@@ -9,6 +9,11 @@ extern "C" {
 #include "servo.h"
 
 /**
+ * @brief Runs all benchmark configurations and prints results in UART
+ */
+void Tests_Benchmarks(void);
+
+/**
  * @brief Runs the complete home test sequence.
  * @return Servo operation result.
  */

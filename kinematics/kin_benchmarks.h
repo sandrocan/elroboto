@@ -12,7 +12,7 @@
 extern "C" {
 #endif
 
-#include "operations.h"
+#include "op_benchmarks.h"
 #include <stdint.h>
 
 #define KIN_BENCHMARK_DEFAULT_MICRO_ITERATIONS  10000U
@@ -27,6 +27,12 @@ typedef struct
     uint8_t use_direct_formula;
     uint32_t iterations;
 } kin_benchmark_config_t;
+
+/**
+ * @brief Runs all benchmark configurations and prints results in UART
+ */
+void Tests_Benchmarks(void);
+
 
 void KinematicBenchmark_RunSinTest(op_trig_mode_t trig_mode);
 void KinematicBenchmark_RunCosTest(op_trig_mode_t trig_mode);

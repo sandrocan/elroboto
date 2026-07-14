@@ -19,6 +19,8 @@
 #define KINEMATICS_IK_DEFAULT_DAMPING              0.0015f
 #define KINEMATICS_IK_DEFAULT_MAX_STEP_DEG         5.0f
 
+#define KINEMATICS_FASTEST_COMPUTE 0U
+
 /* -------------------------------------------------------------------------- */
 /* Private types                                                              */
 /* -------------------------------------------------------------------------- */
@@ -241,7 +243,12 @@ Servo_Result_t Kinematics_ForwardRad(const float joint_rad[KINEMATICS_ACTIVE_JOI
             active_index++;
         }
 
-        Operations_LinkTransform(&kinematics_chain[i].pose, q, &link_transform);
+        if (KINEMATICS_FASTEST_COMPUTE != 0U) {
+        	Operations_LinkTransformFastMath(&kinematics_chain[i].pose, q, &link_transform);
+        } else {
+        	Operations_LinkTransform(&kinematics_chain[i].pose, q, &link_transform);
+        }
+
         Operations_Multiply(&total, &link_transform, &next_total);
         total = next_total;
     }

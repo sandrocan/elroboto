@@ -3,8 +3,6 @@
 #include "servo.h"
 #include "uart.h"
 
-#include "tests.h"
-
 #include <stdio.h>
 #include <stdint.h>
 
@@ -22,7 +20,7 @@ typedef enum
   APP_STATE_IDLE,
   APP_STATE_UNLOCKING,
   APP_STATE_HOMING,
-  APP_STATE_FhowAULT
+  APP_STATE_FAULT
 } App_State;
 
 static uint32_t last_status_log_ms;

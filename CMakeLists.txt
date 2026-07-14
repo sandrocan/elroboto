@@ -47,6 +47,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     App/Src/app.c
     App/Src/servo.c
     App/Src/uart.c
+    App/Src/kinematics.c
+    App/Src/operations.c
 )
 
 # Add include paths

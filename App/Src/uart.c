@@ -8,8 +8,7 @@
 
 #define UART_CELL_DATA_SIZE 5U
 
-#define UART_CELL_PREFIX_SIZE  2U
-#define UART_CELL_PACKET_SIZE  (UART_CELL_PREFIX_SIZE + UART_CELL_VALUE_SIZE)
+
 
 /* -------------------------------------------------------------------------- */
 /* Private variables                                                          */
@@ -19,7 +18,7 @@ static UART_HandleTypeDef *servo_uart = NULL;
 static UART_HandleTypeDef *cell_uart = NULL;
 
 static uint8_t cell_rx_byte;
-static char cell_rx_buffer[UART_CELL_PACKET_SIZE + 1U];
+static char cell_rx_buffer[UART_CELL_DATA_SIZE + 1U];
 static uint8_t cell_rx_index = 0U;
 
 static volatile float *cell_value_pointer = NULL;
@@ -131,44 +130,28 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
     if ((cell_uart != NULL) && (huart == cell_uart))
     {
-        /* Ignore carriage return when the sender uses \r\n */
-        if (cell_rx_byte == '\r')
+        if (cell_rx_byte == '\n')
         {
-            /* Do nothing */
-        }
-        else if (cell_rx_byte == '\n')
-        {
-            if ((cell_rx_index == UART_CELL_PACKET_SIZE) &&
-                (cell_value_pointer != NULL) &&
-                (cell_rx_buffer[0] == 'D') &&
-                (cell_rx_buffer[1] == ':'))
+            if ((cell_rx_index == UART_CELL_DATA_SIZE) &&
+                (cell_value_pointer != NULL))
             {
-                char *parse_end;
+                cell_rx_buffer[UART_CELL_DATA_SIZE] = '\0';
 
-                cell_rx_buffer[UART_CELL_PACKET_SIZE] = '\0';
-
-                /* Skip the "D:" prefix and only parse "0.000" */
-                float parsed_value =
-                    strtof(&cell_rx_buffer[UART_CELL_PREFIX_SIZE], &parse_end);
-
-                if (parse_end == &cell_rx_buffer[UART_CELL_PACKET_SIZE])
-                {
-                    *cell_value_pointer = parsed_value;
-                    cell_value_ready = true;
-                }
+                *cell_value_pointer = strtof(cell_rx_buffer, NULL);
+                cell_value_ready = true;
             }
 
             cell_rx_index = 0U;
         }
         else
         {
-            if (cell_rx_index < UART_CELL_PACKET_SIZE)
+            if (cell_rx_index < UART_CELL_DATA_SIZE)
             {
                 cell_rx_buffer[cell_rx_index++] = (char)cell_rx_byte;
             }
             else
             {
-                /* Invalid or oversized packet */
+                /* Ungültiges Paket verwerfen */
                 cell_rx_index = 0U;
             }
         }
@@ -203,5 +186,3 @@ void UartServo_ClearRxBuffer(void)
         //Drain stale RX bytes
     }
 }
-
-

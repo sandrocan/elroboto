@@ -121,7 +121,7 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  App_Init(&hlpuart1);
+  App_Init(&hlpuart1, &huart4);
 
   while (1)
   {

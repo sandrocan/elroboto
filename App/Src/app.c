@@ -9,6 +9,8 @@
 #define BUTTON_DEBOUNCE_MS      50U
 #define HOME_CHECK_TOLERANCE_TICKS 50U
 
+#define APP_COLLISION_THRESHOLD 0.30f
+
 #define APP_MOVEMENT_SPEED              300U
 #define APP_MOVEMENT_ACCELERATION       50U
 #define APP_SQUARE_RADIUS_CM            12.0f
@@ -28,6 +30,7 @@ static volatile uint8_t button_event_pending;
 static volatile uint32_t last_button_event_ms;
 static App_State app_state;
 static volatile uint8_t app_motion_enabled = 1U;
+static volatile float skin_distance = 0.0f;
 
 //static uint8_t app_benchmark_done = 0U;
 
@@ -64,7 +67,7 @@ static uint8_t app_motion_abort_requested(void);
 
 
 
-void App_Init(UART_HandleTypeDef *servo_uart)
+void App_Init(UART_HandleTypeDef *servo_uart, UART_HandleTypeDef *cell_uart)
 {
     Servo_Result_t result;
     uint16_t target_raw[KINEMATICS_ACTIVE_JOINT_COUNT];
@@ -76,6 +79,8 @@ void App_Init(UART_HandleTypeDef *servo_uart)
     app_motion_enabled = 1U;
 
     UartServo_AttachHandle(servo_uart);
+    UartCell_AttachHandle(cell_uart);
+    HAL_StatusTypeDef UartCell_StartReceiveIT(volatile float *value);
     Servo_Init();
 
     printf("\r\nelroboto booted\r\n");
@@ -156,6 +161,13 @@ void App_Process(uint32_t now_ms)
     float square_radius_m;
 
     app_process_button(now_ms);
+
+    printf("skin_distance = %.3f\r\n", (float)skin_distance);
+
+    if(skin_distance > APP_COLLISION_THRESHOLD)
+    {
+    	app_motion_enabled = 0U;
+    }
 
     if (app_state != APP_STATE_IDLE || app_motion_enabled == 0U)
     {
@@ -295,6 +307,11 @@ void App_Process(uint32_t now_ms)
         &ik_config,
 		app_motion_abort_requested
     );
+
+    if (skin_distance > APP_COLLISION_THRESHOLD)
+    {
+        app_motion_enabled = 0U;
+    }
 
     app_process_button(HAL_GetTick());
 
@@ -445,6 +462,11 @@ static Servo_Result_t app_unlock_all_joints(void)
 static uint8_t app_motion_abort_requested(void)
 {
     app_process_button(HAL_GetTick());
+
+    if (skin_distance > APP_COLLISION_THRESHOLD)
+    {
+        app_motion_enabled = 0U;
+    }
 
     if (app_motion_enabled == 0U)
     {

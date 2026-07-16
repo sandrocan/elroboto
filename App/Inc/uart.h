@@ -17,15 +17,16 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 
+#include <stdbool.h>
+
+
 
 #define UART_DEBUG_BAUDRATE    115200U
 #define UART_SERVO_BAUDRATE   1000000U
 
-/**
- * @brief Initializes the debug UART through the ST-LINK virtual COM port.
- * @return None.
- */
-void UartDebug_Init(void);
+HAL_StatusTypeDef UartCell_StartReceiveIT(volatile float *value);
+void UartCell_AttachHandle(UART_HandleTypeDef *huart);
+HAL_StatusTypeDef UartCell_StartReceiveIT(volatile float *value);
 
 /**
  * @brief Attaches the CubeMX-created UART handle used for the servo bus.

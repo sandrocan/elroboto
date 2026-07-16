@@ -3,30 +3,39 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <stdbool.h>
+#include <stdlib.h>
+
+#define UART_CELL_DATA_SIZE 5U
+
+
 
 /* -------------------------------------------------------------------------- */
 /* Private variables                                                          */
 /* -------------------------------------------------------------------------- */
 
 static UART_HandleTypeDef *servo_uart = NULL;
+static UART_HandleTypeDef *cell_uart = NULL;
+
+static uint8_t cell_rx_byte;
+static char cell_rx_buffer[UART_CELL_DATA_SIZE + 1U];
+static uint8_t cell_rx_index = 0U;
+
+static volatile float *cell_value_pointer = NULL;
+static volatile bool cell_value_ready = false;
 
 /* -------------------------------------------------------------------------- */
 /* Public functions                                                      */
 /* -------------------------------------------------------------------------- */
-
-void UartDebug_Init(void)
-{
-    /* USART1/COM1 is initialized by Core/Src/main.c through the Nucleo BSP. */
-}
 
 void UartServo_AttachHandle(UART_HandleTypeDef *huart)
 {
     servo_uart = huart;
 }
 
-void UartServo_Init(void)
+void UartCell_AttachHandle(UART_HandleTypeDef *huart)
 {
-    /* LPUART1 is initialized by CubeMX-generated Core/Src/main.c. */
+    cell_uart = huart;
 }
 
 void UartDebug_SendString(const char *text)
@@ -94,6 +103,67 @@ UART_HandleTypeDef *UartServo_GetHandle(void)
     return servo_uart;
 }
 
+UART_HandleTypeDef *UartCell_GetHandle(void)
+{
+    return cell_uart;
+}
+
+HAL_StatusTypeDef UartCell_StartReceiveIT(volatile float *value)
+{
+    if ((cell_uart == NULL) || (value == NULL))
+    {
+        return HAL_ERROR;
+    }
+
+    cell_value_pointer = value;
+    cell_rx_index = 0U;
+    cell_value_ready = false;
+
+    return HAL_UART_Receive_IT(
+        cell_uart,
+        &cell_rx_byte,
+        1U
+    );
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if ((cell_uart != NULL) && (huart == cell_uart))
+    {
+        if (cell_rx_byte == '\n')
+        {
+            if ((cell_rx_index == UART_CELL_DATA_SIZE) &&
+                (cell_value_pointer != NULL))
+            {
+                cell_rx_buffer[UART_CELL_DATA_SIZE] = '\0';
+
+                *cell_value_pointer = strtof(cell_rx_buffer, NULL);
+                cell_value_ready = true;
+            }
+
+            cell_rx_index = 0U;
+        }
+        else
+        {
+            if (cell_rx_index < UART_CELL_DATA_SIZE)
+            {
+                cell_rx_buffer[cell_rx_index++] = (char)cell_rx_byte;
+            }
+            else
+            {
+                /* Ungültiges Paket verwerfen */
+                cell_rx_index = 0U;
+            }
+        }
+
+        (void)HAL_UART_Receive_IT(
+            cell_uart,
+            &cell_rx_byte,
+            1U
+        );
+    }
+}
+
 void UartServo_ClearRxBuffer(void)
 {
     uint8_t dummy;
@@ -116,3 +186,5 @@ void UartServo_ClearRxBuffer(void)
         //Drain stale RX bytes
     }
 }
+
+

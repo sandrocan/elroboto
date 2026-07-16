@@ -1,4 +1,5 @@
 #include "kinematics.h"
+#include "control.h"
 #include "uart.h"
 
 #include <stddef.h>
@@ -12,6 +13,7 @@
 #define KINEMATICS_ACTIVE_FIRST_ID     1U
 #define KINEMATICS_ACTIVE_LAST_ID      4U
 #define KINEMATICS_POLL_DELAY_MS       20U
+#define KINEMATICS_CONTROL_TOLERANCE_TICKS 20U
 
 #define KINEMATICS_IK_DEFAULT_MAX_ITERATIONS       80U
 #define KINEMATICS_IK_DEFAULT_TOLERANCE_M          0.005f
@@ -632,6 +634,120 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionAndWait(const Kinematics_Posi
     }
 
     return SERVO_RESULT_OK;
+}
+
+
+Servo_Result_t Kinematics_MoveEndEffectorToPositionControlled(const Kinematics_Position_t *target_position, uint16_t speed, uint8_t acceleration, uint32_t timeout_ms, const Kinematics_IkConfig_t *config, Kinematics_AbortCallback_t abort_callback)
+{
+    Servo_Result_t result;
+    float seed_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT];
+    uint16_t target_raw[KINEMATICS_ACTIVE_JOINT_COUNT];
+    uint16_t current_raw[KINEMATICS_ACTIVE_JOINT_COUNT];
+    Control_PID_t controllers[KINEMATICS_ACTIVE_JOINT_COUNT];
+    uint32_t start_time;
+
+    if (target_position == NULL)
+    {
+        return SERVO_RESULT_NULL_POINTER;
+    }
+
+    result = Kinematics_ReadCurrentJointAnglesDeg(seed_joint_deg);
+    if (result != SERVO_RESULT_OK)
+    {
+        return result;
+    }
+
+    result = Kinematics_InversePositionRaw(target_position, seed_joint_deg, config, target_raw);
+    if (result != SERVO_RESULT_OK)
+    {
+        return result;
+    }
+
+    for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
+    {
+        Control_Reset(&controllers[i]);
+    }
+
+    start_time = HAL_GetTick();
+
+    while ((uint32_t)(HAL_GetTick() - start_time) < timeout_ms)
+    {
+        uint8_t all_joints_reached = 1U;
+
+        if ((abort_callback != NULL) && (abort_callback() != 0U))
+        {
+            return SERVO_RESULT_ABORTED;
+        }
+
+        for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
+        {
+            result = Servo_ReadPosition((uint8_t)(KINEMATICS_ACTIVE_FIRST_ID + i), &current_raw[i]);
+            if (result != SERVO_RESULT_OK)
+            {
+                return result;
+            }
+        }
+
+        for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
+        {
+            const uint8_t joint_id = (uint8_t)(KINEMATICS_ACTIVE_FIRST_ID + i);
+            const uint16_t error_ticks = (current_raw[i] >= target_raw[i])
+                                       ? (uint16_t)(current_raw[i] - target_raw[i])
+                                       : (uint16_t)(target_raw[i] - current_raw[i]);
+
+            if (error_ticks <= KINEMATICS_CONTROL_TOLERANCE_TICKS)
+            {
+                continue;
+            }
+
+            all_joints_reached = 0U;
+
+            if ((abort_callback != NULL) && (abort_callback() != 0U))
+            {
+                return SERVO_RESULT_ABORTED;
+            }
+
+            const Servo_JointConfig_t *joint = Servo_GetJointConfigById(joint_id);
+            const float control_output = Control_Update(
+                &controllers[i],
+                (float)target_raw[i],
+                (float)current_raw[i]
+            );
+            const float commanded_raw = (float)current_raw[i] + control_output;
+            uint16_t new_raw;
+
+            if (joint == NULL)
+            {
+                return SERVO_RESULT_UNKNOWN_JOINT_ID;
+            }
+
+            if (commanded_raw <= (float)joint->min_position_ticks)
+            {
+                new_raw = joint->min_position_ticks;
+            }
+            else if (commanded_raw >= (float)joint->max_position_ticks)
+            {
+                new_raw = joint->max_position_ticks;
+            }
+            else
+            {
+                new_raw = (uint16_t)(commanded_raw + 0.5f);
+            }
+
+            result = Servo_WritePosition(joint_id, new_raw, speed, acceleration);
+            if (result != SERVO_RESULT_OK)
+            {
+                return result;
+            }
+        }
+
+        if (all_joints_reached != 0U)
+        {
+            return SERVO_RESULT_OK;
+        }
+    }
+
+    return SERVO_RESULT_TARGET_NOT_REACHED;
 }
 
 Servo_Result_t Kinematics_ReadCurrentJointAnglesDeg(float joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT])

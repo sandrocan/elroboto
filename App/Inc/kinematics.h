@@ -171,6 +171,18 @@ Servo_Result_t Kinematics_MoveEndEffectorToPosition(const Kinematics_Position_t 
  */
 Servo_Result_t Kinematics_MoveEndEffectorToPositionAndWait(const Kinematics_Position_t *target_position, uint16_t speed, uint8_t acceleration, uint16_t tolerance_ticks, uint32_t timeout_ms, const Kinematics_IkConfig_t *config, Kinematics_AbortCallback_t abort_callback);
 
+/**
+ * @brief Moves all active joints using one PID controller per joint.
+ * @param target_position Target Cartesian position in meters.
+ * @param speed Servo movement speed.
+ * @param acceleration Servo movement acceleration.
+ * @param timeout_ms Maximum movement time in milliseconds.
+ * @param config Optional inverse-kinematics configuration.
+ * @param abort_callback Optional callback used to abort the movement.
+ * @return Servo-style result code.
+ */
+Servo_Result_t Kinematics_MoveEndEffectorToPositionControlled(const Kinematics_Position_t *target_position, uint16_t speed, uint8_t acceleration, uint32_t timeout_ms, const Kinematics_IkConfig_t *config, Kinematics_AbortCallback_t abort_callback);
+
 
 /**
  * @brief Reads the current raw servo positions and converts joints 1 to 4 to angles in degrees.

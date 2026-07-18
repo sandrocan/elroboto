@@ -53,6 +53,31 @@ typedef struct
 typedef uint8_t (*Kinematics_AbortCallback_t)(void);
 
 /**
+ * @brief Diagnostic values produced for one joint during one control cycle.
+ */
+typedef struct
+{
+    uint32_t cycle_index;
+    float dt_s;
+    uint8_t joint_id;
+    uint16_t current_position_ticks;
+    uint16_t target_position_ticks;
+    int32_t error_ticks;
+    float controller_output_ticks;
+    int32_t applied_correction_ticks;
+    uint16_t commanded_position_ticks;
+    uint8_t within_tolerance;
+    uint8_t command_sent;
+    uint8_t joint_limit_clamped;
+} Kinematics_ControlTelemetry_t;
+
+/**
+ * @brief Callback type used to report per-joint controller diagnostics.
+ * @param telemetry Controller values for one joint and control cycle.
+ */
+typedef void (*Kinematics_ControlTelemetryCallback_t)(const Kinematics_ControlTelemetry_t *telemetry);
+
+/**
  * @brief Converts an angle from degrees to radians.
  * @param degrees Angle in degrees.
  * @return Angle in radians.
@@ -176,12 +201,14 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionAndWait(const Kinematics_Posi
  * @param target_position Target Cartesian position in meters.
  * @param speed Servo movement speed.
  * @param acceleration Servo movement acceleration.
+ * @param tolerance_ticks Allowed target error in servo ticks.
  * @param timeout_ms Maximum movement time in milliseconds.
  * @param config Optional inverse-kinematics configuration.
  * @param abort_callback Optional callback used to abort the movement.
+ * @param telemetry_callback Optional callback for per-joint controller diagnostics.
  * @return Servo-style result code.
  */
-Servo_Result_t Kinematics_MoveEndEffectorToPositionControlled(const Kinematics_Position_t *target_position, uint16_t speed, uint8_t acceleration, uint32_t timeout_ms, const Kinematics_IkConfig_t *config, Kinematics_AbortCallback_t abort_callback);
+Servo_Result_t Kinematics_MoveEndEffectorToPositionControlled(const Kinematics_Position_t *target_position, uint16_t speed, uint8_t acceleration, uint16_t tolerance_ticks, uint32_t timeout_ms, const Kinematics_IkConfig_t *config, Kinematics_AbortCallback_t abort_callback, Kinematics_ControlTelemetryCallback_t telemetry_callback);
 
 
 /**

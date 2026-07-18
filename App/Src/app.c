@@ -11,6 +11,7 @@
 
 #define APP_MOVEMENT_SPEED              300U
 #define APP_MOVEMENT_ACCELERATION       50U
+#define APP_CONTROL_TOLERANCE_TICKS     5U
 #define APP_SQUARE_RADIUS_CM            12.0f
 
 typedef enum
@@ -36,6 +37,7 @@ static const char *app_state_to_string(App_State state);
 static void app_process_button(uint32_t now_ms);
 static Servo_Result_t app_unlock_all_joints(void);
 static uint8_t app_motion_abort_requested(void);
+static void app_log_control_telemetry(const Kinematics_ControlTelemetry_t *telemetry);
 
 
 
@@ -286,14 +288,15 @@ void App_Process(uint32_t now_ms)
                target_position.z);
     }
 
-    result = Kinematics_MoveEndEffectorToPositionAndWait(
+    result = Kinematics_MoveEndEffectorToPositionControlled(
         &target_position,
         APP_MOVEMENT_SPEED,
         APP_MOVEMENT_ACCELERATION,
-		50U,
-		20000U,
+        APP_CONTROL_TOLERANCE_TICKS,
+        20000U,
         &ik_config,
-		app_motion_abort_requested
+        app_motion_abort_requested,
+        app_log_control_telemetry
     );
 
     app_process_button(HAL_GetTick());
@@ -452,4 +455,30 @@ static uint8_t app_motion_abort_requested(void)
     }
 
     return 0U;
+}
+
+static void app_log_control_telemetry(const Kinematics_ControlTelemetry_t *telemetry)
+{
+    if (telemetry == NULL)
+    {
+        return;
+    }
+
+    printf(
+        "CTRL cycle=%lu dt_ms=%.1f joint=%u current=%u target=%u "
+        "error=%ld pid_step=%.2f applied=%ld command=%u reached=%u "
+        "sent=%u joint_limit=%u\r\n",
+        (unsigned long)telemetry->cycle_index,
+        (double)(telemetry->dt_s * 1000.0f),
+        (unsigned int)telemetry->joint_id,
+        (unsigned int)telemetry->current_position_ticks,
+        (unsigned int)telemetry->target_position_ticks,
+        (long)telemetry->error_ticks,
+        (double)telemetry->controller_output_ticks,
+        (long)telemetry->applied_correction_ticks,
+        (unsigned int)telemetry->commanded_position_ticks,
+        (unsigned int)telemetry->within_tolerance,
+        (unsigned int)telemetry->command_sent,
+        (unsigned int)telemetry->joint_limit_clamped
+    );
 }

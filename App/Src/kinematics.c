@@ -13,7 +13,8 @@
 #define KINEMATICS_ACTIVE_FIRST_ID     1U
 #define KINEMATICS_ACTIVE_LAST_ID      4U
 #define KINEMATICS_POLL_DELAY_MS       20U
-#define KINEMATICS_CONTROL_TOLERANCE_TICKS 20U
+#define KINEMATICS_CONTROL_PERIOD_MS   50U
+#define KINEMATICS_CONTROL_SETTLED_CYCLES 3U
 
 #define KINEMATICS_IK_DEFAULT_MAX_ITERATIONS       80U
 #define KINEMATICS_IK_DEFAULT_TOLERANCE_M          0.005f
@@ -637,7 +638,7 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionAndWait(const Kinematics_Posi
 }
 
 
-Servo_Result_t Kinematics_MoveEndEffectorToPositionControlled(const Kinematics_Position_t *target_position, uint16_t speed, uint8_t acceleration, uint32_t timeout_ms, const Kinematics_IkConfig_t *config, Kinematics_AbortCallback_t abort_callback)
+Servo_Result_t Kinematics_MoveEndEffectorToPositionControlled(const Kinematics_Position_t *target_position, uint16_t speed, uint8_t acceleration, uint16_t tolerance_ticks, uint32_t timeout_ms, const Kinematics_IkConfig_t *config, Kinematics_AbortCallback_t abort_callback, Kinematics_ControlTelemetryCallback_t telemetry_callback)
 {
     Servo_Result_t result;
     float seed_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT];
@@ -645,6 +646,10 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionControlled(const Kinematics_P
     uint16_t current_raw[KINEMATICS_ACTIVE_JOINT_COUNT];
     Control_PID_t controllers[KINEMATICS_ACTIVE_JOINT_COUNT];
     uint32_t start_time;
+    uint32_t previous_cycle_time;
+    uint32_t cycle_index = 0U;
+    uint8_t settled_cycle_count = 0U;
+    uint8_t first_cycle = 1U;
 
     if (target_position == NULL)
     {
@@ -669,10 +674,19 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionControlled(const Kinematics_P
     }
 
     start_time = HAL_GetTick();
+    previous_cycle_time = start_time;
 
     while ((uint32_t)(HAL_GetTick() - start_time) < timeout_ms)
     {
+        const uint32_t cycle_start_time = HAL_GetTick();
+        const uint32_t elapsed_cycle_ms = (uint32_t)(cycle_start_time - previous_cycle_time);
+        const float dt_s = (first_cycle != 0U)
+                         ? ((float)KINEMATICS_CONTROL_PERIOD_MS / 1000.0f)
+                         : ((float)elapsed_cycle_ms / 1000.0f);
         uint8_t all_joints_reached = 1U;
+
+        previous_cycle_time = cycle_start_time;
+        first_cycle = 0U;
 
         if ((abort_callback != NULL) && (abort_callback() != 0U))
         {
@@ -691,12 +705,34 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionControlled(const Kinematics_P
         for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
         {
             const uint8_t joint_id = (uint8_t)(KINEMATICS_ACTIVE_FIRST_ID + i);
-            const uint16_t error_ticks = (current_raw[i] >= target_raw[i])
-                                       ? (uint16_t)(current_raw[i] - target_raw[i])
-                                       : (uint16_t)(target_raw[i] - current_raw[i]);
+            const int32_t signed_error_ticks = (int32_t)target_raw[i] - (int32_t)current_raw[i];
+            const uint16_t error_ticks = (signed_error_ticks >= 0)
+                                       ? (uint16_t)signed_error_ticks
+                                       : (uint16_t)(-signed_error_ticks);
 
-            if (error_ticks <= KINEMATICS_CONTROL_TOLERANCE_TICKS)
+            if (error_ticks <= tolerance_ticks)
             {
+                if (telemetry_callback != NULL)
+                {
+                    const Kinematics_ControlTelemetry_t telemetry =
+                    {
+                        .cycle_index = cycle_index,
+                        .dt_s = dt_s,
+                        .joint_id = joint_id,
+                        .current_position_ticks = current_raw[i],
+                        .target_position_ticks = target_raw[i],
+                        .error_ticks = signed_error_ticks,
+                        .controller_output_ticks = 0.0f,
+                        .applied_correction_ticks = 0,
+                        .commanded_position_ticks = current_raw[i],
+                        .within_tolerance = 1U,
+                        .command_sent = 0U,
+                        .joint_limit_clamped = 0U
+                    };
+
+                    telemetry_callback(&telemetry);
+                }
+
                 continue;
             }
 
@@ -711,10 +747,12 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionControlled(const Kinematics_P
             const float control_output = Control_Update(
                 &controllers[i],
                 (float)target_raw[i],
-                (float)current_raw[i]
+                (float)current_raw[i],
+                dt_s
             );
             const float commanded_raw = (float)current_raw[i] + control_output;
             uint16_t new_raw;
+            uint8_t joint_limit_clamped = 0U;
 
             if (joint == NULL)
             {
@@ -724,10 +762,12 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionControlled(const Kinematics_P
             if (commanded_raw <= (float)joint->min_position_ticks)
             {
                 new_raw = joint->min_position_ticks;
+                joint_limit_clamped = 1U;
             }
             else if (commanded_raw >= (float)joint->max_position_ticks)
             {
                 new_raw = joint->max_position_ticks;
+                joint_limit_clamped = 1U;
             }
             else
             {
@@ -739,12 +779,53 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionControlled(const Kinematics_P
             {
                 return result;
             }
+
+            if (telemetry_callback != NULL)
+            {
+                const Kinematics_ControlTelemetry_t telemetry =
+                {
+                    .cycle_index = cycle_index,
+                    .dt_s = dt_s,
+                    .joint_id = joint_id,
+                    .current_position_ticks = current_raw[i],
+                    .target_position_ticks = target_raw[i],
+                    .error_ticks = signed_error_ticks,
+                    .controller_output_ticks = control_output,
+                    .applied_correction_ticks = (int32_t)new_raw - (int32_t)current_raw[i],
+                    .commanded_position_ticks = new_raw,
+                    .within_tolerance = 0U,
+                    .command_sent = 1U,
+                    .joint_limit_clamped = joint_limit_clamped
+                };
+
+                telemetry_callback(&telemetry);
+            }
         }
 
         if (all_joints_reached != 0U)
         {
-            return SERVO_RESULT_OK;
+            settled_cycle_count++;
+
+            if (settled_cycle_count >= KINEMATICS_CONTROL_SETTLED_CYCLES)
+            {
+                return SERVO_RESULT_OK;
+            }
         }
+        else
+        {
+            settled_cycle_count = 0U;
+        }
+
+        while (((uint32_t)(HAL_GetTick() - cycle_start_time) < KINEMATICS_CONTROL_PERIOD_MS) &&
+               ((uint32_t)(HAL_GetTick() - start_time) < timeout_ms))
+        {
+            if ((abort_callback != NULL) && (abort_callback() != 0U))
+            {
+                return SERVO_RESULT_ABORTED;
+            }
+        }
+
+        cycle_index++;
     }
 
     return SERVO_RESULT_TARGET_NOT_REACHED;

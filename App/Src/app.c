@@ -38,6 +38,7 @@ static void app_process_button(uint32_t now_ms);
 static Servo_Result_t app_unlock_all_joints(void);
 static uint8_t app_motion_abort_requested(void);
 static void app_log_control_telemetry(const Kinematics_ControlTelemetry_t *telemetry);
+static void app_log_resolved_rate_telemetry(const Kinematics_ResolvedRateTelemetry_t *telemetry);
 
 
 
@@ -288,6 +289,9 @@ void App_Process(uint32_t now_ms)
                target_position.z);
     }
 
+    (void)app_log_control_telemetry;
+
+#if 0
     result = Kinematics_MoveEndEffectorToPositionControlled(
         &target_position,
         APP_MOVEMENT_SPEED,
@@ -297,6 +301,17 @@ void App_Process(uint32_t now_ms)
         &ik_config,
         app_motion_abort_requested,
         app_log_control_telemetry
+    );
+#endif
+
+    result = Kinematics_MoveEndEffectorToPositionResolvedRate(
+        &target_position,
+        APP_MOVEMENT_SPEED,
+        APP_MOVEMENT_ACCELERATION,
+        20000U,
+        &ik_config,
+        app_motion_abort_requested,
+        app_log_resolved_rate_telemetry
     );
 
     app_process_button(HAL_GetTick());
@@ -480,5 +495,26 @@ static void app_log_control_telemetry(const Kinematics_ControlTelemetry_t *telem
         (unsigned int)telemetry->within_tolerance,
         (unsigned int)telemetry->command_sent,
         (unsigned int)telemetry->joint_limit_clamped
+    );
+}
+
+static void app_log_resolved_rate_telemetry(const Kinematics_ResolvedRateTelemetry_t *telemetry)
+{
+    if (telemetry == NULL)
+    {
+        return;
+    }
+
+    printf(
+        "CART_CTRL cycle=%lu current=(%.4f,%.4f,%.4f) "
+        "error_mm=(%.2f,%.2f,%.2f) norm_mm=%.2f\r\n",
+        (unsigned long)telemetry->cycle_index,
+        (double)telemetry->current_position_m.x,
+        (double)telemetry->current_position_m.y,
+        (double)telemetry->current_position_m.z,
+        (double)(telemetry->error_m.x * 1000.0f),
+        (double)(telemetry->error_m.y * 1000.0f),
+        (double)(telemetry->error_m.z * 1000.0f),
+        (double)(telemetry->error_norm_m * 1000.0f)
     );
 }

@@ -2,6 +2,7 @@
 #include "control.h"
 #include "uart.h"
 
+#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -21,6 +22,9 @@
 #define KINEMATICS_IK_DEFAULT_FD_STEP_DEG          1.0f
 #define KINEMATICS_IK_DEFAULT_DAMPING              0.0015f
 #define KINEMATICS_IK_DEFAULT_MAX_STEP_DEG         5.0f
+
+#define KINEMATICS_CARTESIAN_KP_PER_S               2.0f
+#define KINEMATICS_CARTESIAN_MAX_SPEED_M_PER_S      0.04f
 
 #define KINEMATICS_FASTEST_COMPUTE 0U
 
@@ -514,6 +518,183 @@ Servo_Result_t Kinematics_InversePositionDeg(const Kinematics_Position_t *target
     return SERVO_RESULT_TARGET_NOT_REACHED;
 }
 
+Servo_Result_t Kinematics_InversePositionDegOneStep(
+    const Kinematics_Position_t *target_position,
+    const float current_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT],
+    const Kinematics_IkConfig_t *config,
+    float next_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT])
+{
+    Servo_Result_t result;
+    Kinematics_IkConfig_t local_config;
+    Kinematics_Position_t current_position;
+    float joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT];
+    float min_deg[KINEMATICS_ACTIVE_JOINT_COUNT];
+    float max_deg[KINEMATICS_ACTIVE_JOINT_COUNT];
+    float error[3];
+    float jacobian[3][KINEMATICS_ACTIVE_JOINT_COUNT];
+    float a[3][3];
+    float a_inv[3][3];
+    float v[3];
+
+    if ((target_position == NULL) || (current_joint_deg == NULL) || (next_joint_deg == NULL))
+    {
+        return SERVO_RESULT_NULL_POINTER;
+    }
+
+    if (config == NULL)
+    {
+        Kinematics_GetDefaultIkConfig(&local_config);
+    }
+    else
+    {
+        local_config = *config;
+    }
+
+    if (local_config.finite_difference_step_deg <= 0.0f)
+    {
+        local_config.finite_difference_step_deg = KINEMATICS_IK_DEFAULT_FD_STEP_DEG;
+    }
+
+    if (local_config.damping <= 0.0f)
+    {
+        local_config.damping = KINEMATICS_IK_DEFAULT_DAMPING;
+    }
+
+    if (local_config.max_step_deg <= 0.0f)
+    {
+        local_config.max_step_deg = KINEMATICS_IK_DEFAULT_MAX_STEP_DEG;
+    }
+
+    for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
+    {
+        result = Kinematics_GetJointLimitsDeg(
+            (uint8_t)(KINEMATICS_ACTIVE_FIRST_ID + i),
+            &min_deg[i],
+            &max_deg[i]
+        );
+        if (result != SERVO_RESULT_OK)
+        {
+            return result;
+        }
+
+        joint_deg[i] = current_joint_deg[i];
+        Kinematics_ClampFloat(&joint_deg[i], min_deg[i], max_deg[i]);
+    }
+
+    result = Kinematics_ForwardPositionDeg(joint_deg, &current_position);
+    if (result != SERVO_RESULT_OK)
+    {
+        return result;
+    }
+
+    error[0] = target_position->x - current_position.x;
+    error[1] = target_position->y - current_position.y;
+    error[2] = target_position->z - current_position.z;
+
+    for (uint8_t joint_index = 0U; joint_index < KINEMATICS_ACTIVE_JOINT_COUNT; joint_index++)
+    {
+        float trial_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT];
+        float actual_step_deg;
+        float actual_step_rad;
+        Kinematics_Position_t trial_position;
+
+        for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
+        {
+            trial_joint_deg[i] = joint_deg[i];
+        }
+
+        trial_joint_deg[joint_index] = joint_deg[joint_index] + local_config.finite_difference_step_deg;
+        if (trial_joint_deg[joint_index] > max_deg[joint_index])
+        {
+            trial_joint_deg[joint_index] = joint_deg[joint_index] - local_config.finite_difference_step_deg;
+        }
+
+        Kinematics_ClampFloat(
+            &trial_joint_deg[joint_index],
+            min_deg[joint_index],
+            max_deg[joint_index]
+        );
+
+        actual_step_deg = trial_joint_deg[joint_index] - joint_deg[joint_index];
+        actual_step_rad = Kinematics_DegToRad(actual_step_deg);
+
+        if ((actual_step_rad > -0.000001f) && (actual_step_rad < 0.000001f))
+        {
+            jacobian[0][joint_index] = 0.0f;
+            jacobian[1][joint_index] = 0.0f;
+            jacobian[2][joint_index] = 0.0f;
+        }
+        else
+        {
+            result = Kinematics_ForwardPositionDeg(trial_joint_deg, &trial_position);
+            if (result != SERVO_RESULT_OK)
+            {
+                return result;
+            }
+
+            jacobian[0][joint_index] = (trial_position.x - current_position.x) / actual_step_rad;
+            jacobian[1][joint_index] = (trial_position.y - current_position.y) / actual_step_rad;
+            jacobian[2][joint_index] = (trial_position.z - current_position.z) / actual_step_rad;
+        }
+    }
+
+    for (uint8_t row = 0U; row < 3U; row++)
+    {
+        for (uint8_t col = 0U; col < 3U; col++)
+        {
+            a[row][col] = 0.0f;
+
+            for (uint8_t joint_index = 0U; joint_index < KINEMATICS_ACTIVE_JOINT_COUNT; joint_index++)
+            {
+                a[row][col] += jacobian[row][joint_index] * jacobian[col][joint_index];
+            }
+
+            if (row == col)
+            {
+                a[row][col] += local_config.damping * local_config.damping;
+            }
+        }
+    }
+
+    if (Operations_Invert3x3(a, a_inv) == 0U)
+    {
+        return SERVO_RESULT_TARGET_NOT_REACHED;
+    }
+
+    for (uint8_t row = 0U; row < 3U; row++)
+    {
+        v[row] = 0.0f;
+
+        for (uint8_t col = 0U; col < 3U; col++)
+        {
+            v[row] += a_inv[row][col] * error[col];
+        }
+    }
+
+    for (uint8_t joint_index = 0U; joint_index < KINEMATICS_ACTIVE_JOINT_COUNT; joint_index++)
+    {
+        float delta_rad = 0.0f;
+        float delta_deg;
+
+        for (uint8_t row = 0U; row < 3U; row++)
+        {
+            delta_rad += jacobian[row][joint_index] * v[row];
+        }
+
+        delta_deg = Kinematics_RadToDeg(delta_rad);
+        Kinematics_ClampFloat(&delta_deg, -local_config.max_step_deg, local_config.max_step_deg);
+
+        next_joint_deg[joint_index] = joint_deg[joint_index] + delta_deg;
+        Kinematics_ClampFloat(
+            &next_joint_deg[joint_index],
+            min_deg[joint_index],
+            max_deg[joint_index]
+        );
+    }
+
+    return SERVO_RESULT_OK;
+}
+
 Servo_Result_t Kinematics_InversePositionRaw(const Kinematics_Position_t *target_position, const float seed_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT], const Kinematics_IkConfig_t *config, uint16_t result_raw[KINEMATICS_ACTIVE_JOINT_COUNT])
 {
     Servo_Result_t result;
@@ -814,6 +995,172 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionControlled(const Kinematics_P
         else
         {
             settled_cycle_count = 0U;
+        }
+
+        while (((uint32_t)(HAL_GetTick() - cycle_start_time) < KINEMATICS_CONTROL_PERIOD_MS) &&
+               ((uint32_t)(HAL_GetTick() - start_time) < timeout_ms))
+        {
+            if ((abort_callback != NULL) && (abort_callback() != 0U))
+            {
+                return SERVO_RESULT_ABORTED;
+            }
+        }
+
+        cycle_index++;
+    }
+
+    return SERVO_RESULT_TARGET_NOT_REACHED;
+}
+
+Servo_Result_t Kinematics_MoveEndEffectorToPositionResolvedRate(
+    const Kinematics_Position_t *target_position,
+    uint16_t speed,
+    uint8_t acceleration,
+    uint32_t timeout_ms,
+    const Kinematics_IkConfig_t *config,
+    Kinematics_AbortCallback_t abort_callback,
+    Kinematics_ResolvedRateTelemetryCallback_t telemetry_callback)
+{
+    Servo_Result_t result;
+    Kinematics_IkConfig_t local_config;
+    uint32_t start_time;
+    uint32_t cycle_index = 0U;
+
+    if (target_position == NULL)
+    {
+        return SERVO_RESULT_NULL_POINTER;
+    }
+
+    if (config == NULL)
+    {
+        Kinematics_GetDefaultIkConfig(&local_config);
+    }
+    else
+    {
+        local_config = *config;
+    }
+
+    if (local_config.position_tolerance_m <= 0.0f)
+    {
+        local_config.position_tolerance_m = KINEMATICS_IK_DEFAULT_TOLERANCE_M;
+    }
+
+    start_time = HAL_GetTick();
+
+    while ((uint32_t)(HAL_GetTick() - start_time) < timeout_ms)
+    {
+        const uint32_t cycle_start_time = HAL_GetTick();
+        float measured_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT];
+        float next_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT];
+        uint16_t command_raw[KINEMATICS_ACTIVE_JOINT_COUNT];
+        Kinematics_Transform_t current_transform;
+        Kinematics_Position_t current_position;
+        Kinematics_Position_t next_position;
+        Kinematics_Position_t error;
+        float error_norm_m;
+        float step_scale;
+        const float dt_s = (float)KINEMATICS_CONTROL_PERIOD_MS / 1000.0f;
+        const float max_step_m = KINEMATICS_CARTESIAN_MAX_SPEED_M_PER_S * dt_s;
+
+        if ((abort_callback != NULL) && (abort_callback() != 0U))
+        {
+            return SERVO_RESULT_ABORTED;
+        }
+
+        result = Kinematics_ReadCurrentJointAnglesDeg(measured_joint_deg);
+        if (result != SERVO_RESULT_OK)
+        {
+            return result;
+        }
+
+        result = Kinematics_ForwardDeg(measured_joint_deg, &current_transform);
+        if (result != SERVO_RESULT_OK)
+        {
+            return result;
+        }
+
+        result = Kinematics_GetPosition(&current_transform, &current_position);
+        if (result != SERVO_RESULT_OK)
+        {
+            return result;
+        }
+
+        error.x = target_position->x - current_position.x;
+        error.y = target_position->y - current_position.y;
+        error.z = target_position->z - current_position.z;
+        error_norm_m = sqrtf((error.x * error.x) +
+                             (error.y * error.y) +
+                             (error.z * error.z));
+
+        if (telemetry_callback != NULL)
+        {
+            const Kinematics_ResolvedRateTelemetry_t telemetry =
+            {
+                .cycle_index = cycle_index,
+                .current_position_m = current_position,
+                .error_m = error,
+                .error_norm_m = error_norm_m
+            };
+
+            telemetry_callback(&telemetry);
+        }
+
+        if (error_norm_m <= local_config.position_tolerance_m)
+        {
+            return SERVO_RESULT_OK;
+        }
+
+        step_scale = KINEMATICS_CARTESIAN_KP_PER_S * dt_s;
+        if ((error_norm_m * step_scale) > max_step_m)
+        {
+            step_scale = max_step_m / error_norm_m;
+        }
+
+        next_position.x = current_position.x + (error.x * step_scale);
+        next_position.y = current_position.y + (error.y * step_scale);
+        next_position.z = current_position.z + (error.z * step_scale);
+
+        result = Kinematics_InversePositionDegOneStep(
+            &next_position,
+            measured_joint_deg,
+            &local_config,
+            next_joint_deg
+        );
+        if (result != SERVO_RESULT_OK)
+        {
+            return result;
+        }
+
+        for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
+        {
+            result = Kinematics_AngleDegToRaw(
+                (uint8_t)(KINEMATICS_ACTIVE_FIRST_ID + i),
+                next_joint_deg[i],
+                &command_raw[i]
+            );
+            if (result != SERVO_RESULT_OK)
+            {
+                return result;
+            }
+        }
+
+        for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
+        {
+            if ((abort_callback != NULL) && (abort_callback() != 0U))
+            {
+                return SERVO_RESULT_ABORTED;
+            }
+
+            result = Servo_WritePosition(
+                (uint8_t)(KINEMATICS_ACTIVE_FIRST_ID + i),
+                command_raw[i],
+                speed,
+                acceleration
+            );
+            if (result != SERVO_RESULT_OK)
+            {
+                return result;
+            }
         }
 
         while (((uint32_t)(HAL_GetTick() - cycle_start_time) < KINEMATICS_CONTROL_PERIOD_MS) &&

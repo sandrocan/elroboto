@@ -118,6 +118,19 @@ Servo_Result_t Servo_ReadPosition(uint8_t id, uint16_t *position);
 Servo_Result_t Servo_ReadPositionRetry(uint8_t id, uint16_t *position);
 
 /**
+ * @brief Reads the current positions of multiple servos using one sync-read request.
+ * @param ids Array containing the servo IDs in the requested response order.
+ * @param positions Array where one current position per servo will be stored.
+ * @param joint_count Number of entries in ids and positions.
+ * @return Servo operation result.
+ */
+Servo_Result_t Servo_ReadPositionsSync(
+    const uint8_t ids[],
+    uint16_t positions[],
+    uint8_t joint_count
+);
+
+/**
  * @brief Sends a checked position command to a configured non-fixed joint.
  * @param id Servo ID of the joint to move.
  * @param position Target position in servo ticks.

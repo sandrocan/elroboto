@@ -1436,10 +1436,27 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionResolvedRate(
             return SERVO_RESULT_ABORTED;
         }
 
-        result = Kinematics_ReadCurrentJointAnglesDeg(measured_joint_deg);
+        result = Servo_ReadPositionsSync(
+            active_joint_ids,
+            measured_raw,
+            KINEMATICS_ACTIVE_JOINT_COUNT
+        );
         if (result != SERVO_RESULT_OK)
         {
             return result;
+        }
+
+        for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
+        {
+            result = Kinematics_RawToAngleDeg(
+                active_joint_ids[i],
+                measured_raw[i],
+                &measured_joint_deg[i]
+            );
+            if (result != SERVO_RESULT_OK)
+            {
+                return result;
+            }
         }
 
         if (command_initialized == 0U)
@@ -1450,19 +1467,6 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionResolvedRate(
             }
 
             command_initialized = 1U;
-        }
-
-        for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
-        {
-            result = Kinematics_AngleDegToRaw(
-                (uint8_t)(KINEMATICS_ACTIVE_FIRST_ID + i),
-                measured_joint_deg[i],
-                &measured_raw[i]
-            );
-            if (result != SERVO_RESULT_OK)
-            {
-                return result;
-            }
         }
 
         result = Kinematics_ForwardDeg(measured_joint_deg, &current_transform);

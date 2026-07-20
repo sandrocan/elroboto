@@ -11,7 +11,7 @@
 
 #define APP_MOVEMENT_SPEED              300U
 #define APP_MOVEMENT_ACCELERATION       50U
-#define APP_CONTROL_TOLERANCE_TICKS     5U
+#define APP_CONTROL_TOLERANCE_TICKS     10U
 #define APP_SQUARE_RADIUS_CM            12.0f
 
 typedef enum
@@ -291,7 +291,7 @@ void App_Process(uint32_t now_ms)
 
     (void)app_log_control_telemetry;
 
-#if 0
+
     result = Kinematics_MoveEndEffectorToPositionControlled(
         &target_position,
         APP_MOVEMENT_SPEED,
@@ -302,7 +302,9 @@ void App_Process(uint32_t now_ms)
         app_motion_abort_requested,
         app_log_control_telemetry
     );
-#endif
+
+
+#if 0
 
     result = Kinematics_MoveEndEffectorToPositionResolvedRate(
         &target_position,
@@ -313,6 +315,8 @@ void App_Process(uint32_t now_ms)
         app_motion_abort_requested,
         app_log_resolved_rate_telemetry
     );
+
+#endif
 
 #if 0
     result = Kinematics_MoveEndEffectorToPositionOneShotAndCheck(
@@ -336,7 +340,7 @@ void App_Process(uint32_t now_ms)
         app_motion_abort_requested,
         app_log_resolved_rate_telemetry
     );
-    
+
 #endif
     app_process_button(HAL_GetTick());
 

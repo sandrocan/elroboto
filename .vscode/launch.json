@@ -1,0 +1,22 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "stlinkgdbtarget",
+            "request": "launch",
+            "name": "STM32: Build and debug (ST-LINK)",
+            "origin": "snippet",
+            "cwd": "${workspaceFolder}",
+            "deviceName": "STM32U545RET6Q",
+            "deviceCore": "Cortex-M33",
+            "deviceTrustzone": "TZ-disabled",
+            "preBuild": "${command:st-stm32-ide-debug-launch.build}",
+            "runEntry": "main",
+            "imagesAndSymbols": [
+                {
+                    "imageFileName": "${workspaceFolder}/build/Debug/elroboto.elf"
+                }
+            ]
+        }
+    ]
+}

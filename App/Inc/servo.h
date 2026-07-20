@@ -128,6 +128,23 @@ Servo_Result_t Servo_ReadPositionRetry(uint8_t id, uint16_t *position);
 Servo_Result_t Servo_WritePosition(uint8_t id, uint16_t position, uint16_t speed, uint8_t acceleration);
 
 /**
+ * @brief Sends checked position commands to multiple servos in one sync-write packet.
+ * @param ids Array containing the servo IDs.
+ * @param positions Array containing one target position per servo in ticks.
+ * @param joint_count Number of entries in ids and positions.
+ * @param speed Movement speed value used for all servos.
+ * @param acceleration Movement acceleration value used for all servos.
+ * @return Servo operation result.
+ */
+Servo_Result_t Servo_WritePositionsSync(
+    const uint8_t ids[],
+    const uint16_t positions[],
+    uint8_t joint_count,
+    uint16_t speed,
+    uint8_t acceleration
+);
+
+/**
  * @brief Returns the last received servo response buffer.
  * @return Pointer to the internal last-response buffer.
  */

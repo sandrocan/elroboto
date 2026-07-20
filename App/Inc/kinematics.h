@@ -83,6 +83,8 @@ typedef struct
     Kinematics_Position_t current_position_m;
     Kinematics_Position_t error_m;
     float error_norm_m;
+    uint16_t measured_position_ticks[KINEMATICS_ACTIVE_JOINT_COUNT];
+    uint16_t commanded_position_ticks[KINEMATICS_ACTIVE_JOINT_COUNT];
 } Kinematics_ResolvedRateTelemetry_t;
 
 typedef void (*Kinematics_ResolvedRateTelemetryCallback_t)(const Kinematics_ResolvedRateTelemetry_t *telemetry);
@@ -215,6 +217,32 @@ Servo_Result_t Kinematics_MoveEndEffectorToPosition(const Kinematics_Position_t 
  * @return Servo-style result code.
  */
 Servo_Result_t Kinematics_MoveEndEffectorToPositionAndWait(const Kinematics_Position_t *target_position, uint16_t speed, uint8_t acceleration, uint16_t tolerance_ticks, uint32_t timeout_ms, const Kinematics_IkConfig_t *config, Kinematics_AbortCallback_t abort_callback);
+
+/**
+ * @brief Sends one full-IK joint target and only observes the resulting TCP error.
+ */
+Servo_Result_t Kinematics_MoveEndEffectorToPositionOneShotAndCheck(
+    const Kinematics_Position_t *target_position,
+    uint16_t speed,
+    uint8_t acceleration,
+    uint32_t timeout_ms,
+    const Kinematics_IkConfig_t *config,
+    Kinematics_AbortCallback_t abort_callback,
+    Kinematics_ResolvedRateTelemetryCallback_t telemetry_callback
+);
+
+/**
+ * @brief Performs one smooth full-IK move, then trims the remaining TCP error.
+ */
+Servo_Result_t Kinematics_MoveEndEffectorToPositionOneShotThenResolvedRate(
+    const Kinematics_Position_t *target_position,
+    uint16_t speed,
+    uint8_t acceleration,
+    uint32_t timeout_ms,
+    const Kinematics_IkConfig_t *config,
+    Kinematics_AbortCallback_t abort_callback,
+    Kinematics_ResolvedRateTelemetryCallback_t telemetry_callback
+);
 
 /**
  * @brief Moves all active joints using one PID controller per joint.

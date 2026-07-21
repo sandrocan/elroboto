@@ -38,6 +38,7 @@ typedef struct
 
 void UartCell_AttachHandle(UART_HandleTypeDef *huart);
 HAL_StatusTypeDef UartCell_StartReceiveIT(volatile float *value);
+void UartCell_Process(void);
 void UartCell_GetDiagnostics(UartCell_Diagnostics_t *diagnostics);
 
 /**

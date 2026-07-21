@@ -27,6 +27,12 @@ Hardware Flow Control. Akzeptiert werden Zeilen wie `0.123\n` und
 Parser- oder Neustartfehler empfangen. Der unbelastete Sensorwert lag bei etwa
 `0.011`; bei Annaeherung stieg er bis ueber `0.8`.
 
+Der UART4-Interrupt puffert nur die empfangene ASCII-Zeile. Die Umwandlung in
+`float` erfolgt ausserhalb der ISR im normalen Kontrollpfad. Dadurch kann die
+E-Skin-Verarbeitung die dicht aufeinanderfolgenden Servoantworten bei 1 Mbit/s
+nicht durch eine rechenintensive `strtof()`-Auswertung im Interrupt
+unterbrechen.
+
 Die Demo verwendet vorlaeufig `0.050` als Stoppschwellwert. Beim Stopp liest die
 Firmware die Positionen der vier aktiven Gelenke und schreibt sie als
 Halteziele zurueck. Sinkt der Messwert anschliessend fuer mindestens 500 ms auf
@@ -64,6 +70,8 @@ UART-Konfiguration:
 - 1 Stopbit
 - kein Hardware Flow Control
 - HSI16 als LPUART1-Taktquelle
+- RX-FIFO aktiviert, um kurze Unterbrechungen durch andere Interrupts zu
+  ueberbruecken
 
 Die Servoversorgung erfolgt separat mit 12 V. Die 12-V-Leitung darf nicht mit
 einem Versorgungspin des Nucleo verbunden werden. Nucleo und Adapter benoetigen

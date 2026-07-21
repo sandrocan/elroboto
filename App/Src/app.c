@@ -21,8 +21,8 @@
 #define APP_SKIN_STARTUP_TIMEOUT_MS   2000U
 #define APP_SKIN_DATA_TIMEOUT_MS      1000U
 
-#define APP_MOVEMENT_SPEED              100U
-#define APP_MOVEMENT_ACCELERATION       20U
+#define APP_MOVEMENT_SPEED              300U
+#define APP_MOVEMENT_ACCELERATION       50U
 #define APP_CONTROL_TOLERANCE_TICKS     10U
 #define APP_SQUARE_RADIUS_CM            12.0f
 
@@ -189,7 +189,10 @@ void App_Init(UART_HandleTypeDef *servo_uart, UART_HandleTypeDef *cell_uart)
             return;
         }
 
+        HAL_Delay(20U);
     }
+
+    HAL_Delay(300U);
 
     for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
     {
@@ -215,6 +218,8 @@ void App_Init(UART_HandleTypeDef *servo_uart, UART_HandleTypeDef *cell_uart)
             }
             return;
         }
+
+        HAL_Delay(20U);
     }
 
     printf("App start position reached\r\n");
@@ -226,6 +231,8 @@ void App_Process(uint32_t now_ms)
 {
     if (APP_SKIN_TEST_ONLY != 0U)
     {
+        UartCell_Process();
+
         if ((uint32_t)(now_ms - last_status_log_ms) >= APP_SKIN_LOG_PERIOD_MS)
         {
             UartCell_Diagnostics_t diagnostics;
@@ -613,9 +620,11 @@ static Servo_Result_t app_unlock_all_joints(void)
 
 static uint8_t app_motion_abort_requested(void)
 {
-    uint32_t now_ms = HAL_GetTick();
+    uint32_t now_ms;
     UartCell_Diagnostics_t diagnostics;
 
+    UartCell_Process();
+    now_ms = HAL_GetTick();
     app_process_button(now_ms);
 
     if (app_skin_pause_active != 0U)
@@ -661,6 +670,7 @@ static uint8_t app_wait_for_skin_sample(uint32_t timeout_ms)
 
     do
     {
+        UartCell_Process();
         UartCell_GetDiagnostics(&diagnostics);
         if (diagnostics.valid_frame_count > 0U)
         {
@@ -771,6 +781,8 @@ static void app_update_skin_pause(uint32_t now_ms)
 static void app_latch_skin_fault(const char *reason, uint32_t now_ms)
 {
     Servo_Result_t hold_result = SERVO_RESULT_OK;
+    UartCell_Diagnostics_t diagnostics;
+    uint32_t last_valid_age_ms;
 
     if (app_state == APP_STATE_FAULT)
     {
@@ -778,11 +790,26 @@ static void app_latch_skin_fault(const char *reason, uint32_t now_ms)
     }
 
     app_motion_enabled = 0U;
+    UartCell_GetDiagnostics(&diagnostics);
+    last_valid_age_ms = (diagnostics.valid_frame_count == 0U)
+                      ? 0U
+                      : (uint32_t)(now_ms - diagnostics.last_valid_frame_ms);
 
     printf("E-skin fault latched: reason=%s value=%.3f time=%lu ms\r\n",
            reason,
            (float)skin_distance,
            (unsigned long)now_ms);
+    printf("E-skin UART: rx=%lu valid=%lu invalid=%lu uart_err=%lu "
+           "last_err=0x%08lx rearm_fail=%lu last=0x%02x "
+           "last_valid_age_ms=%lu\r\n",
+           (unsigned long)diagnostics.received_byte_count,
+           (unsigned long)diagnostics.valid_frame_count,
+           (unsigned long)diagnostics.invalid_frame_count,
+           (unsigned long)diagnostics.uart_error_count,
+           (unsigned long)diagnostics.last_uart_error,
+           (unsigned long)diagnostics.receive_restart_failure_count,
+           (unsigned int)diagnostics.last_received_byte,
+           (unsigned long)last_valid_age_ms);
 
     if (app_skin_pause_active == 0U)
     {

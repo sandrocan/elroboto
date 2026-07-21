@@ -1,5 +1,6 @@
 #include "uart.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -19,11 +20,13 @@ static UART_HandleTypeDef *cell_uart = NULL;
 
 static uint8_t cell_rx_byte;
 static char cell_rx_buffer[UART_CELL_DATA_SIZE + 1U];
+static volatile char cell_pending_frame[UART_CELL_DATA_SIZE + 1U];
 static uint8_t cell_rx_index = 0U;
 static bool cell_rx_discarding = false;
+static volatile uint32_t cell_pending_sequence = 0U;
+static uint32_t cell_processed_sequence = 0U;
 
 static volatile float *cell_value_pointer = NULL;
-static volatile bool cell_value_ready = false;
 static volatile uint32_t cell_received_byte_count = 0U;
 static volatile uint32_t cell_valid_frame_count = 0U;
 static volatile uint32_t cell_invalid_frame_count = 0U;
@@ -127,7 +130,8 @@ HAL_StatusTypeDef UartCell_StartReceiveIT(volatile float *value)
     cell_value_pointer = value;
     cell_rx_index = 0U;
     cell_rx_discarding = false;
-    cell_value_ready = false;
+    cell_pending_sequence = 0U;
+    cell_processed_sequence = 0U;
     cell_received_byte_count = 0U;
     cell_valid_frame_count = 0U;
     cell_invalid_frame_count = 0U;
@@ -142,6 +146,53 @@ HAL_StatusTypeDef UartCell_StartReceiveIT(volatile float *value)
         &cell_rx_byte,
         1U
     );
+}
+
+void UartCell_Process(void)
+{
+    char frame[UART_CELL_DATA_SIZE + 1U];
+    char *parse_end = NULL;
+    uint32_t sequence_before;
+    uint32_t sequence_after;
+    float parsed_value;
+
+    if (cell_value_pointer == NULL)
+    {
+        return;
+    }
+
+    do
+    {
+        sequence_before = cell_pending_sequence;
+        if ((sequence_before == cell_processed_sequence) ||
+            ((sequence_before & 1U) != 0U))
+        {
+            return;
+        }
+
+        for (uint8_t i = 0U; i <= UART_CELL_DATA_SIZE; i++)
+        {
+            frame[i] = cell_pending_frame[i];
+        }
+
+        sequence_after = cell_pending_sequence;
+    }
+    while ((sequence_before != sequence_after) ||
+           ((sequence_after & 1U) != 0U));
+
+    parsed_value = strtof(frame, &parse_end);
+    cell_processed_sequence = sequence_after;
+
+    if ((parse_end == frame) || (parse_end == NULL) || (*parse_end != '\0') ||
+        (!isfinite(parsed_value)))
+    {
+        cell_invalid_frame_count++;
+        return;
+    }
+
+    *cell_value_pointer = parsed_value;
+    cell_valid_frame_count++;
+    cell_last_valid_frame_ms = HAL_GetTick();
 }
 
 void UartCell_GetDiagnostics(UartCell_Diagnostics_t *diagnostics)
@@ -176,12 +227,13 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
                 (cell_rx_index == UART_CELL_DATA_SIZE) &&
                 (cell_value_pointer != NULL))
             {
-                cell_rx_buffer[UART_CELL_DATA_SIZE] = '\0';
-
-                *cell_value_pointer = strtof(cell_rx_buffer, NULL);
-                cell_value_ready = true;
-                cell_valid_frame_count++;
-                cell_last_valid_frame_ms = HAL_GetTick();
+                cell_pending_sequence++;
+                for (uint8_t i = 0U; i < UART_CELL_DATA_SIZE; i++)
+                {
+                    cell_pending_frame[i] = cell_rx_buffer[i];
+                }
+                cell_pending_frame[UART_CELL_DATA_SIZE] = '\0';
+                cell_pending_sequence++;
             }
             else
             {

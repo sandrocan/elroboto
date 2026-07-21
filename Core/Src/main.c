@@ -272,6 +272,15 @@ static void MX_LPUART1_UART_Init(void)
   }
   /* USER CODE BEGIN LPUART1_Init 2 */
 
+  if (HAL_UARTEx_SetRxFifoThreshold(&hlpuart1, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_EnableFifoMode(&hlpuart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
   /* USER CODE END LPUART1_Init 2 */
 
 }

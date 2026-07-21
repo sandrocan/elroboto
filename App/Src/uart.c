@@ -1,8 +1,18 @@
+/**
+ ******************************************************************************
+ * @file           : uart.c
+ * @author         : Niklas Peter
+ * @brief          : All functions and variables for configuring the UART on the
+ *                      STM/nucleo board and enabling communication. Most func-
+ *                      tions are implemented via HAL drivers already but are ab-
+ *                      stracted to make usage more clear and easy.
+ ******************************************************************************
+ */
+
 #include "uart.h"
 
 #include <stdio.h>
 #include <string.h>
-
 
 /* -------------------------------------------------------------------------- */
 /* Private variables                                                          */
@@ -11,22 +21,12 @@
 static UART_HandleTypeDef *servo_uart = NULL;
 
 /* -------------------------------------------------------------------------- */
-/* Public functions                                                      */
+/* Public functions                                                           */
 /* -------------------------------------------------------------------------- */
-
-void UartDebug_Init(void)
-{
-    /* USART1/COM1 is initialized by Core/Src/main.c through the Nucleo BSP. */
-}
 
 void UartServo_AttachHandle(UART_HandleTypeDef *huart)
 {
     servo_uart = huart;
-}
-
-void UartServo_Init(void)
-{
-    /* LPUART1 is initialized by CubeMX-generated Core/Src/main.c. */
 }
 
 void UartDebug_SendString(const char *text)
@@ -36,11 +36,7 @@ void UartDebug_SendString(const char *text)
         return;
     }
 
-    /*
-     * BSP_COM_Init() sets up the ST-LINK Virtual COM Port.
-     * With USE_COM_LOG enabled in stm32u5xx_nucleo_conf.h,
-     * printf is routed to COM1.
-     */
+    //printf is routed to the COM1 UART, so we can use it directly aswell
     printf("%s", text);
 }
 
@@ -51,6 +47,7 @@ void UartServo_SendString(const char *text)
         return;
     }
 
+    //HAL transmit
     (void)HAL_UART_Transmit(
         servo_uart,
         (const uint8_t *)text,

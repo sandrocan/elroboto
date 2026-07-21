@@ -1,6 +1,6 @@
 /**
  ******************************************************************************
- * @file           : uart.h / uart.c
+ * @file           : uart.h
  * @author         : Niklas Peter
  * @brief          : All functions and variables for configuring the UART on the STM/nucleo board and enabling communication
  ******************************************************************************
@@ -22,28 +22,11 @@ extern "C" {
 #define UART_SERVO_BAUDRATE   1000000U
 
 /**
- * @brief Initializes the debug UART through the ST-LINK virtual COM port.
- * @return None.
- */
-void UartDebug_Init(void);
-
-/**
  * @brief Attaches the CubeMX-created UART handle used for the servo bus.
  * @param huart Pointer to the initialized LPUART1 handle.
  * @return None.
  */
 void UartServo_AttachHandle(UART_HandleTypeDef *huart);
-
-/**
- * @brief Initializes LPUART1 for servo bus communication.
- *
- * In the integrated firmware LPUART1 is initialized by CubeMX-generated code.
- * This function is kept as a compatibility hook and does not change pins,
- * clocks or baud rate.
- *
- * @return None.
- */
-void UartServo_Init(void);
 
 /**
  * @brief Sends a string over the debug UART.

@@ -68,6 +68,7 @@ static void app_log_control_telemetry(const Kinematics_ControlTelemetry_t *telem
 
 void App_Init(UART_HandleTypeDef *servo_uart)
 {
+    //Init
     Servo_Result_t result;
     uint16_t target_raw[KINEMATICS_ACTIVE_JOINT_COUNT];
 
@@ -82,6 +83,7 @@ void App_Init(UART_HandleTypeDef *servo_uart)
 
     printf("\r\nelroboto booted\r\n");
 
+    //Initial position
     target_raw[0] = 2047U;   /* joint 1 */
     target_raw[1] = 1208U;   /* joint 2 */
     target_raw[2] = 2548U;   /* joint 3 */
@@ -89,6 +91,7 @@ void App_Init(UART_HandleTypeDef *servo_uart)
 
     printf("Moving to app start position\r\n");
 
+    //Move joints to the start position
     for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
     {
         uint8_t joint_id = (uint8_t)(i + 1U);
@@ -115,6 +118,7 @@ void App_Init(UART_HandleTypeDef *servo_uart)
 
     HAL_Delay(300U);
 
+    //Keep polling the motion command until all joints are within tolerance
     for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
     {
         uint8_t joint_id = (uint8_t)(i + 1U);
@@ -147,6 +151,7 @@ void App_Init(UART_HandleTypeDef *servo_uart)
 
 void App_Process(uint32_t now_ms)
 {
+    //Init
     static uint8_t tcp_start_saved = 0U;
     static uint8_t step_index = 0U;
     static Kinematics_Position_t tcp_start_position;
@@ -164,8 +169,10 @@ void App_Process(uint32_t now_ms)
         return;
     }
 
+    //Determine the square radius
     square_radius_m = APP_SQUARE_RADIUS_CM / 100.0f;
 
+    //Configure the IK Solver
     Kinematics_GetDefaultIkConfig(&ik_config);
     ik_config.position_tolerance_m = 0.005f;
     ik_config.max_iterations = 200U;
@@ -173,6 +180,7 @@ void App_Process(uint32_t now_ms)
     ik_config.finite_difference_step_deg = 0.5f;
     ik_config.damping = 0.02f;
 
+    //Compute cartesian coordinates for TCP (once)
     if (tcp_start_saved == 0U)
     {
         float start_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT];
@@ -245,6 +253,7 @@ void App_Process(uint32_t now_ms)
         tcp_start_saved = 1U;
     }
 
+    //Set the start position as current before changing it according to the step
     target_position = tcp_start_position;
 
     if (step_index == 0U)
@@ -288,6 +297,7 @@ void App_Process(uint32_t now_ms)
                target_position.z);
     }
 
+    //Move the endeffector to the final tick result of the IK solver
     result = Kinematics_MoveEndEffectorToPositionControlled(
         &target_position,
         APP_MOVEMENT_SPEED,
@@ -299,6 +309,7 @@ void App_Process(uint32_t now_ms)
         app_log_control_telemetry
     );
 
+    //If the button is pressed, interrupt and unlock all joints instantly
     app_process_button(HAL_GetTick());
 
     if (result != SERVO_RESULT_OK)
@@ -311,6 +322,7 @@ void App_Process(uint32_t now_ms)
         return;
     }
 
+    //Rectangle has its 4 corners as steps
     step_index++;
     if (step_index >= 4U)
     {
@@ -319,6 +331,7 @@ void App_Process(uint32_t now_ms)
 
     HAL_Delay(50U);
 
+    //If the button is pressed, interrupt and unlock all joints instantly
     app_process_button(HAL_GetTick());
 
     if (app_motion_enabled == 0U)
@@ -341,6 +354,7 @@ static void app_set_state(App_State next_state)
 
 static const char *app_state_to_string(App_State state)
 {
+    //Print out the app state in UART for debugging
   switch (state)
   {
     case APP_STATE_INIT:
@@ -368,8 +382,10 @@ static const char *app_state_to_string(App_State state)
 
 static void app_process_button(uint32_t now_ms)
 {
+    //Init
     Servo_Result_t result;
 
+    
     if (button_event_pending == 0U)
     {
         return;
@@ -384,10 +400,12 @@ static void app_process_button(uint32_t now_ms)
 
     last_button_event_ms = now_ms;
 
+    //Disable all motion of the robot
     app_motion_enabled = 0U;
 
     printf("B1 pressed: motion disabled, unlocking all joints\r\n");
 
+    //Unlock all joints
     result = app_unlock_all_joints();
 
     if (result != SERVO_RESULT_OK)
@@ -449,6 +467,7 @@ static uint8_t app_motion_abort_requested(void)
 {
     app_process_button(HAL_GetTick());
 
+    //Set the abort flag for the kinematics function
     if (app_motion_enabled == 0U)
     {
         return 1U;

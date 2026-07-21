@@ -1,3 +1,12 @@
+/**
+ ******************************************************************************
+ * @file           : tests.c
+ * @author         : Niklas Peter
+ * @brief          : Three distinct test cases that were used to get proof of concept
+ *                      for FK, IK and the general Homing position
+ ******************************************************************************
+ */
+
 #include "tests.h"
 #include "kinematics.h"
 #include "operations.h"
@@ -32,9 +41,7 @@
 
 #define APP_BENCHMARK_ITERATIONS 1000U
 
-/*
- * Servo_JointConfig_t field adapter.
- */
+//Small aliases so the joint table stays easy to read
 #define TESTS_JOINT_MIN(joint)   ((joint)->min_position_ticks)
 #define TESTS_JOINT_HOME(joint)  ((joint)->home_position_ticks)
 #define TESTS_JOINT_MAX(joint)   ((joint)->max_position_ticks)
@@ -53,6 +60,7 @@ Servo_Result_t Tests_HomeTest(void)
 
     printf("Configured servo joints: %u\r\n", (unsigned int)joint_count);
 
+    //Print the joint table first so we know exactly what this test is using
     for (uint8_t index = 0U; index < joint_count; ++index)
     {
         const Servo_JointConfig_t *joint = Servo_GetJointConfigByIndex(index);
@@ -77,6 +85,7 @@ Servo_Result_t Tests_HomeTest(void)
     printf("Initial home check started: tolerance=%u ticks\r\n",
            (unsigned int)TESTS_HOME_TOLERANCE_TICKS);
 
+    //Check where every active joint is before we move anything
     for (uint8_t index = 0U; index < joint_count; ++index)
     {
         const Servo_JointConfig_t *joint = Servo_GetJointConfigByIndex(index);
@@ -140,6 +149,7 @@ Servo_Result_t Tests_HomeTest(void)
 
     printf("Drive home started\r\n");
 
+    //Drive the complete arm to the configured home position
     result = Servo_DriveHome();
 
     printf("Drive home finished: result=%s\r\n", Servo_ResultToString(result));
@@ -269,6 +279,7 @@ Servo_Result_t Tests_DkTest(void)
            position.y,
            position.z);
 
+    //Move every active joint on its own and watch how the TCP changes
     for (uint8_t joint_index = 0U; joint_index < KINEMATICS_ACTIVE_JOINT_COUNT; joint_index++)
     {
         uint8_t joint_id = (uint8_t)(joint_index + 1U);
@@ -340,6 +351,7 @@ Servo_Result_t Tests_DkTest(void)
                (unsigned int)joint_id,
                TESTS_DK_MOVE_DEG);
 
+        //Move the joint back before we continue with the next one
         result = Kinematics_MoveJointRelativeDegAndWait(
             joint_id,
             -TESTS_DK_MOVE_DEG,
@@ -408,6 +420,7 @@ Servo_Result_t Tests_DkTest(void)
 
 Servo_Result_t Tests_IkTest(void)
 {
+    //Init
     Servo_Result_t result;
     Kinematics_Transform_t transform;
     Kinematics_Transform_t solved_transform;
@@ -423,6 +436,7 @@ Servo_Result_t Tests_IkTest(void)
     float solved_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT];
     uint16_t target_raw[KINEMATICS_ACTIVE_JOINT_COUNT];
 
+    //Hardcoded offsets for the test
     const float seed_offsets[TESTS_IK_SEED_COUNT][KINEMATICS_ACTIVE_JOINT_COUNT] =
     {
         { 0.0f,   0.0f,   0.0f,   0.0f  },
@@ -436,7 +450,6 @@ Servo_Result_t Tests_IkTest(void)
     printf("Moving end effector by %.3f m in -X, -Y and -Z, each time back to start\r\n",
            TESTS_IK_MOVE_M);
 
-    /* Now set up the IK config we want for this hardware test. */
     Kinematics_GetDefaultIkConfig(&ik_config);
     ik_config.position_tolerance_m = TESTS_IK_POSITION_TOL_M;
     ik_config.max_iterations = TESTS_IK_MAX_ITERATIONS;
@@ -444,7 +457,7 @@ Servo_Result_t Tests_IkTest(void)
     ik_config.finite_difference_step_deg = 0.5f;
     ik_config.damping = 0.02f;
 
-    /* Now read the current TCP once, so the test knows where it starts. */
+    //Read the current TCP once so we know where the test starts
     result = Kinematics_ReadCurrentEndEffector(&transform);
     if (result != SERVO_RESULT_OK)
     {
@@ -472,7 +485,7 @@ Servo_Result_t Tests_IkTest(void)
     {
         target_position = start_position;
 
-        /* Now choose the cartesian target for this axis. */
+        //Pick the cartesian target for the current axis
         if (axis == 0U)
         {
             target_position.x -= TESTS_IK_MOVE_M;
@@ -513,7 +526,7 @@ Servo_Result_t Tests_IkTest(void)
                        move_position.z);
             }
 
-            /* Now read the current joint angles, because IK needs a useful seed. */
+            //Read the current joint angles because IK needs a useful starting point
             result = Kinematics_ReadCurrentJointAnglesDeg(current_seed_deg);
             if (result != SERVO_RESULT_OK)
             {
@@ -529,7 +542,7 @@ Servo_Result_t Tests_IkTest(void)
                    current_seed_deg[2],
                    current_seed_deg[3]);
 
-            /* Now try a few seeds, because straight poses can be annoying for numerical IK. */
+            //Try a few nearby seeds because straight poses can be annoying for numerical IK
             for (uint8_t attempt = 0U; attempt < TESTS_IK_SEED_COUNT; attempt++)
             {
                 for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
@@ -575,7 +588,7 @@ Servo_Result_t Tests_IkTest(void)
                    solved_joint_deg[2],
                    solved_joint_deg[3]);
 
-            /* Now check the math only: solved angles through FK should land near the target. */
+            //Run the solved angles through FK first and check that the math lands near the target
             result = Kinematics_ForwardDeg(solved_joint_deg, &solved_transform);
             if (result != SERVO_RESULT_OK)
             {
@@ -604,7 +617,7 @@ Servo_Result_t Tests_IkTest(void)
                    move_position.y - solved_position.y,
                    move_position.z - solved_position.z);
 
-            /* Now convert the solved angles to raw servo targets. */
+            //Convert the solved angles into raw servo targets
             for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
             {
                 uint8_t joint_id = (uint8_t)(i + 1U);
@@ -629,7 +642,7 @@ Servo_Result_t Tests_IkTest(void)
                        (unsigned int)target_raw[i]);
             }
 
-            /* Now command the real servos. If this fails, it is hardware/communication side. */
+            //Send the targets to the real servos, so errors from here are hardware or communication related
             for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
             {
                 uint8_t joint_id = (uint8_t)(i + 1U);
@@ -655,7 +668,7 @@ Servo_Result_t Tests_IkTest(void)
 
             HAL_Delay(TESTS_IK_COMMAND_SETTLE_MS);
 
-            /* Now wait until each joint is close enough to the target raw value. */
+            //Wait until every joint is close enough to its raw target
             for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
             {
                 uint8_t joint_id = (uint8_t)(i + 1U);
@@ -681,7 +694,7 @@ Servo_Result_t Tests_IkTest(void)
                 HAL_Delay(10U);
             }
 
-            /* Now print the final raw values, so we see what the servos actually did. */
+            //Read the final raw values so we can see what the servos actually reached
             for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
             {
                 uint8_t joint_id = (uint8_t)(i + 1U);
@@ -706,7 +719,7 @@ Servo_Result_t Tests_IkTest(void)
                 HAL_Delay(10U);
             }
 
-            /* Now read the real TCP again, so we can compare math target and hardware result. */
+            //Read the real TCP again and compare the hardware result with the math target
             result = Kinematics_ReadCurrentEndEffector(&transform);
             if (result != SERVO_RESULT_OK)
             {
@@ -749,7 +762,7 @@ Servo_Result_t Tests_IkTest(void)
                        move_position.y - reached_position.y,
                        move_position.z - reached_position.z);
 
-                /* Now accept the real returned position as the next start, because hardware drifts a bit. */
+                //Use the real return position as the next start because the hardware can drift a little
                 start_position = reached_position;
             }
 

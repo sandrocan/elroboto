@@ -1,3 +1,12 @@
+/**
+ ******************************************************************************
+ * @file           : op_benchmarks.c
+ * @author         : Niklas Peter
+ * @brief          : Math operations used by the kinematics implementation
+ *                      with additional variants for performance benchmarks
+ ******************************************************************************
+ */
+
 #include <math.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -54,7 +63,7 @@ void Operations_Multiply(const Kinematics_Transform_t *a, const Kinematics_Trans
         return;
     }
 
-    /* Keep the old project behavior: plain row-by-column multiplication. */
+    //Keep the original project behavior and use the plain multiplication
     op_mat4_mul_baseline(a->m, b->m, out->m);
 }
 
@@ -128,7 +137,7 @@ float op_sin_arm_fast(float x)
 #if defined(OPERATIONS_USE_CMSIS_DSP)
     return arm_sin_f32(x);
 #else
-    /* Fallback keeps the project buildable when CMSIS-DSP is not linked. */
+    //Keep the project buildable when CMSIS-DSP is not linked
     return sinf(x);
 #endif
 }
@@ -138,13 +147,14 @@ float op_cos_arm_fast(float x)
 #if defined(OPERATIONS_USE_CMSIS_DSP)
     return arm_cos_f32(x);
 #else
-    /* Fallback keeps the project buildable when CMSIS-DSP is not linked. */
+    //Keep the project buildable when CMSIS-DSP is not linked
     return cosf(x);
 #endif
 }
 
 float op_sin_lookup(float x)
 {
+    //Init
     float wrapped;
     float scaled;
     uint32_t index;
@@ -154,6 +164,7 @@ float op_sin_lookup(float x)
 
     op_lookup_init();
 
+    //Wrap the angle first so every input maps into the lookup table
     wrapped = op_wrap_0_to_2pi(x);
     scaled = wrapped * OP_LOOKUP_INDEX_SCALE;
     index = (uint32_t)scaled;
@@ -168,6 +179,7 @@ float op_sin_lookup(float x)
         fraction = scaled - (float)index;
     }
 
+    //Interpolate between the two closest samples
     a = op_sin_table[index];
     b = op_sin_table[index + 1U];
 
@@ -176,6 +188,7 @@ float op_sin_lookup(float x)
 
 float op_cos_lookup(float x)
 {
+    //Cosine is just sine shifted by half of pi
     return op_sin_lookup(x + (0.5f * OPERATIONS_PI));
 }
 
@@ -275,6 +288,7 @@ void op_mat4_mul_baseline(
         return;
     }
 
+    //Calculate every result element with the normal row by column loop
     for (uint8_t row = 0U; row < KINEMATICS_MATRIX_SIZE; row++)
     {
         for (uint8_t col = 0U; col < KINEMATICS_MATRIX_SIZE; col++)
@@ -288,6 +302,7 @@ void op_mat4_mul_baseline(
         }
     }
 
+    //Copy at the end so input and output are allowed to point to the same matrix
     op_mat4_copy(tmp, C);
 }
 
@@ -303,6 +318,7 @@ void op_mat4_mul_optimized(
         return;
     }
 
+    //Cache one complete row and calculate all four output values directly
     for (uint8_t row = 0U; row < KINEMATICS_MATRIX_SIZE; row++)
     {
         const float a0 = A[row][0];
@@ -331,11 +347,9 @@ void op_mat4_mul_homogeneous(
         return;
     }
 
-    /*
-     * Homogeneous transform structure:
-     * A = [Ra pa], B = [Rb pb], C = [Ra*Rb Ra*pb + pa]
-     *     [0  1 ]      [0  1 ]      [0     1        ]
-     */
+    //Both inputs are homogeneous transforms, so the fixed last row can be skipped
+    //A = [Ra pa], B = [Rb pb], C = [Ra*Rb Ra*pb + pa]
+    //    [0  1 ]      [0  1 ]      [0     1        ]
     for (uint8_t row = 0U; row < 3U; row++)
     {
         const float a0 = A[row][0];
@@ -348,6 +362,7 @@ void op_mat4_mul_homogeneous(
         tmp[row][3] = (a0 * B[0][3]) + (a1 * B[1][3]) + (a2 * B[2][3]) + A[row][3];
     }
 
+    //Restore the fixed final row of a homogeneous transformation matrix
     tmp[3][0] = 0.0f;
     tmp[3][1] = 0.0f;
     tmp[3][2] = 0.0f;
@@ -408,6 +423,7 @@ void Operations_LinkTransformMode(
         return;
     }
 
+    //Calculate all trigonometric values once before building the matrix
     cr = op_cos(link->roll, trig_mode);
     sr = op_sin(link->roll, trig_mode);
     cp = op_cos(link->pitch, trig_mode);
@@ -417,7 +433,7 @@ void Operations_LinkTransformMode(
     cq = op_cos(joint_angle_rad, trig_mode);
     sq = op_sin(joint_angle_rad, trig_mode);
 
-    /* Rotation = Rz(yaw) * Ry(pitch) * Rx(roll) * Rz(q). */
+    //Build the fixed rotation Rz(yaw) * Ry(pitch) * Rx(roll)
     r00 = cy * cp;
     r01 = (cy * sp * sr) - (sy * cr);
     r02 = (cy * sp * cr) + (sy * sr);
@@ -432,6 +448,7 @@ void Operations_LinkTransformMode(
 
     op_mat4_identity(out->m);
 
+    //Apply the active joint rotation Rz(q) and insert the fixed translation
     out->m[0][0] = (r00 * cq) + (r01 * sq);
     out->m[0][1] = (-r00 * sq) + (r01 * cq);
     out->m[0][2] = r02;
@@ -459,13 +476,14 @@ static void op_lookup_init(void)
         return;
     }
 
+    //Generate the lookup table once on the first call
     for (uint32_t i = 0U; i <= OP_LOOKUP_TABLE_SIZE; i++)
     {
         float angle = ((float)i * OPERATIONS_TWO_PI) / (float)OP_LOOKUP_TABLE_SIZE;
         op_sin_table[i] = sinf(angle);
     }
 
-    /* Make sure the final sample closes the table exactly. */
+    //Close the table exactly so interpolation also works at the wraparound
     op_sin_table[OP_LOOKUP_TABLE_LAST_INDEX] = op_sin_table[0];
     op_lookup_is_initialized = 1U;
 }

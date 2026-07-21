@@ -1,12 +1,12 @@
 /**
  ******************************************************************************
- * @file           : operations.h / operations.c
+ * @file           : op_benchmarks.h
  * @author         : Niklas Peter
- * @brief          : All relevant math operations for kinematics
- *                   -> Additional versions of the same operations for
- *                   optimization purposes
+ * @brief          : Math operations used by the kinematics implementation
+ *                      with additional variants for performance benchmarks
  ******************************************************************************
  */
+
 #ifndef OPERATIONS_H_
 #define OPERATIONS_H_
 

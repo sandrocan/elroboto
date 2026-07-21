@@ -1,5 +1,12 @@
-#include "servo.h"
+/**
+ ******************************************************************************
+ * @file           : servo.c
+ * @author         : Niklas Peter
+ * @brief          : All functions regarding control and communication with Feetech motors
+ ******************************************************************************
+ */
 
+#include "servo.h"
 #include "uart.h"
 
 #include <stddef.h>
@@ -9,11 +16,6 @@
 /* -------------------------------------------------------------------------- */
 /* Private defines                                                            */
 /* -------------------------------------------------------------------------- */
-
-#define SERVO_HEADER_1              0xFFU
-#define SERVO_HEADER_2              0xFFU
-
-#define SERVO_INSTRUCTION_PING      0x01U
 
 #define SERVO_INSTRUCTION_READ              0x02U
 
@@ -48,6 +50,7 @@
 #define SERVO_HOME_ACCELERATION       50U
 #define SERVO_WRIST_ROLL_ID             5U
 #define SERVO_GRIPPER_ID                6U
+
 /* -------------------------------------------------------------------------- */
 /* Private variables                                                          */
 /* -------------------------------------------------------------------------- */
@@ -148,9 +151,9 @@ void Servo_Init(void)
 //	};
 
 
+    //Write into public variables
     servo_joint_table = default_joint_table;
     servo_joint_count = (uint8_t)(sizeof(default_joint_table) / sizeof(default_joint_table[0]));
-
     servo_last_response_length = 0U;
 
     for (uint8_t i = 0; i < SERVO_STATUS_PACKET_LENGTH; i++)
@@ -206,7 +209,7 @@ Servo_Result_t Servo_Ping(uint8_t id)
     uint8_t packet[SERVO_PING_PACKET_LENGTH];
 
     /*
-     * Ping packet:
+     * Custom Ping packet:
      *
      * Header      FF FF
      * ID          id
@@ -214,11 +217,11 @@ Servo_Result_t Servo_Ping(uint8_t id)
      * Instruction 01 = Ping
      * Checksum    ~(ID + Length + Instruction)
      */
-    packet[0] = SERVO_HEADER_1;
-    packet[1] = SERVO_HEADER_2;
+    packet[0] = 0xFFU;
+    packet[1] = 0xFFU;
     packet[2] = id;
     packet[3] = 0x02U;
-    packet[4] = SERVO_INSTRUCTION_PING;
+    packet[4] = 0x01U;
     packet[5] = Servo_CalculateChecksum(&packet[2], 3U);
 
     for (uint8_t i = 0; i < SERVO_STATUS_PACKET_LENGTH; i++)
@@ -228,6 +231,7 @@ Servo_Result_t Servo_Ping(uint8_t id)
 
     servo_last_response_length = 0;
 
+    //Send ping to the servo
     HAL_StatusTypeDef tx_status = UartServo_SendCommand(
         packet,
         SERVO_PING_PACKET_LENGTH,
@@ -239,6 +243,7 @@ Servo_Result_t Servo_Ping(uint8_t id)
         return SERVO_RESULT_TX_ERROR;
     }
 
+    //Receive pong from the servo
     HAL_StatusTypeDef rx_status = UartServo_ReadResponse(
         servo_last_response,
         SERVO_STATUS_PACKET_LENGTH,
@@ -257,6 +262,7 @@ Servo_Result_t Servo_Ping(uint8_t id)
 
     servo_last_response_length = SERVO_STATUS_PACKET_LENGTH;
 
+    //Print the ping result into UART
     return Servo_CheckStatusPacket(id);
 }
 
@@ -272,6 +278,7 @@ Servo_Result_t Servo_UnlockJoint(uint8_t id)
 
 Servo_Result_t Servo_DriveHome(void)
 {
+    //Init result
     Servo_Result_t result;
 
     if (servo_is_initialized == 0U)
@@ -284,11 +291,8 @@ Servo_Result_t Servo_DriveHome(void)
         return SERVO_RESULT_NOT_INITIALIZED;
     }
 
-    /*
-     * Step 1:
-     * Disable torque first so the arm can be manually placed before homing
-     * without fighting any still-locked joint.
-     */
+    //Step 1: Disable torque first so the arm can be manually placed before homing
+    //without fighting any still-locked joint
     for (uint8_t i = 0U; i < servo_joint_count; i++)
     {
         const Servo_JointConfig_t *joint = &servo_joint_table[i];
@@ -313,10 +317,7 @@ Servo_Result_t Servo_DriveHome(void)
         }
     }
 
-    /*
-     * Step 2:
-     * Validate limits and enable torque on every configured joint.
-     */
+    //Step 2: Validate limits and enable torque on every configured joint
     for (uint8_t i = 0U; i < servo_joint_count; i++)
     {
         const Servo_JointConfig_t *joint = &servo_joint_table[i];
@@ -361,12 +362,7 @@ Servo_Result_t Servo_DriveHome(void)
         }
     }
 
-    /*
-     * Step 3:
-     * Command every configured joint to its home value. Position commands are
-     * sent back-to-back so the motion starts as close together as the serial
-     * bus allows.
-     */
+    //Step 3: Command every configured joint to its home value
     for (uint8_t i = 0U; i < servo_joint_count; i++)
     {
         const Servo_JointConfig_t *joint = &servo_joint_table[i];
@@ -410,10 +406,7 @@ Servo_Result_t Servo_DriveHome(void)
         UartDebug_SendString(text);
     }
 
-    /*
-     * Step 4:
-     * Poll encoder positions until every configured joint reached home.
-     */
+    //Step 4: Poll encoder positions until every configured joint reached home
     uint32_t start_time = HAL_GetTick();
 
     while ((HAL_GetTick() - start_time) < SERVO_HOME_TIMEOUT_MS)
@@ -538,30 +531,14 @@ Servo_Result_t Servo_ReadPosition(uint8_t id, uint16_t *position)
         return SERVO_RESULT_NULL_POINTER;
     }
 
+    //Try 5 times to read from a frehsly written buffer
     for (uint8_t attempt = 0U; attempt < 5U; attempt++)
     {
+        //Clean buffer first so no old bits are set
         UartServo_ClearRxBuffer();
 
+        //Read instruction
         result = Servo_ReadPositionOnce(id, position);
-
-        if (result == SERVO_RESULT_OK)
-        {
-            return SERVO_RESULT_OK;
-        }
-
-        HAL_Delay(20U);
-    }
-
-    return result;
-}
-
-Servo_Result_t Servo_ReadPositionRetry(uint8_t id, uint16_t *position)
-{
-    Servo_Result_t result;
-
-    for (uint8_t attempt = 0U; attempt < 3U; attempt++)
-    {
-        result = Servo_ReadPosition(id, position);
 
         if (result == SERVO_RESULT_OK)
         {
@@ -578,6 +555,7 @@ Servo_Result_t Servo_WritePosition(uint8_t id, uint16_t position, uint16_t speed
 {
     const Servo_JointConfig_t *joint = NULL;
 
+    //Check if joint is available and valid
     if (servo_is_initialized == 0U)
     {
         return SERVO_RESULT_NOT_INITIALIZED;
@@ -600,6 +578,7 @@ Servo_Result_t Servo_WritePosition(uint8_t id, uint16_t position, uint16_t speed
         return SERVO_RESULT_POSITION_OUT_OF_RANGE;
     }
 
+    //Write the package into the UART
     return Servo_SendPositionCommand(
         id,
         position,
@@ -620,6 +599,7 @@ uint16_t Servo_GetLastResponseLength(void)
 
 const char *Servo_ResultToString(Servo_Result_t result)
 {
+    //Used to print out the errors based on the enum struct
     switch (result)
     {
         case SERVO_RESULT_OK:
@@ -693,8 +673,8 @@ static Servo_Result_t Servo_CheckStatusPacket(uint8_t expected_id)
 {
     uint8_t calculated_checksum = 0U;
 
-    if ((servo_last_response[0] != SERVO_HEADER_1) ||
-        (servo_last_response[1] != SERVO_HEADER_2))
+    if ((servo_last_response[0] != 0xFFU) ||
+        (servo_last_response[1] != 0xFFU))
     {
         return SERVO_RESULT_INVALID_HEADER;
     }
@@ -704,16 +684,9 @@ static Servo_Result_t Servo_CheckStatusPacket(uint8_t expected_id)
         return SERVO_RESULT_INVALID_ID;
     }
 
-    /*
-     * Status packet:
-     *
-     * FF FF ID LENGTH ERROR CHECKSUM
-     *
-     * For ping we expect:
-     * FF FF ID 02 00 CHECKSUM
-     */
     calculated_checksum = Servo_CalculateChecksum(&servo_last_response[2], 3U);
 
+    //Check if checksum aligns
     if (servo_last_response[5] != calculated_checksum)
     {
         return SERVO_RESULT_INVALID_CHECKSUM;
@@ -734,16 +707,17 @@ static Servo_Result_t Servo_WriteByte(uint8_t id, uint8_t address, uint8_t value
     /*
      * Write 1 byte packet:
      *
-     * FF FF ID LENGTH INSTRUCTION ADDRESS VALUE CHECKSUM
-     *
-     * LENGTH = 04
-     * because parameters are:
-     * ADDRESS + VALUE
-     * plus INSTRUCTION + CHECKSUM internally counted by protocol.
+     * FF FF 
+     * ID 
+     * LENGTH 
+     * INSTRUCTION 
+     * ADDRESS 
+     * VALUE 
+     * CHECKSUM
      */
 
-    packet[0] = SERVO_HEADER_1;
-    packet[1] = SERVO_HEADER_2;
+    packet[0] = 0xFFU;
+    packet[1] = 0xFFU;
     packet[2] = id;
     packet[3] = 0x04U;
     packet[4] = SERVO_INSTRUCTION_WRITE;
@@ -758,6 +732,7 @@ static Servo_Result_t Servo_WriteByte(uint8_t id, uint8_t address, uint8_t value
 
     servo_last_response_length = 0;
 
+    //Send the package over UART
     HAL_StatusTypeDef tx_status = UartServo_SendCommand(
         packet,
         SERVO_WRITE_BYTE_PACKET_LENGTH,
@@ -769,6 +744,7 @@ static Servo_Result_t Servo_WriteByte(uint8_t id, uint8_t address, uint8_t value
         return SERVO_RESULT_TX_ERROR;
     }
 
+    //Receive answer over UART
     HAL_StatusTypeDef rx_status = UartServo_ReadResponse(
         servo_last_response,
         SERVO_STATUS_PACKET_LENGTH,
@@ -816,8 +792,23 @@ static Servo_Result_t Servo_SendPositionCommand(uint8_t id,
     uint8_t packet[SERVO_WRITE_POSITION_SIZE];
     HAL_StatusTypeDef tx_status;
 
-    packet[0]  = SERVO_HEADER_1;
-    packet[1]  = SERVO_HEADER_2;
+    /*
+     * Write 1 full command package:
+     *
+     * FF FF 
+     * ID 
+     * LENGTH 
+     * INSTRUCTION 
+     * ADDRESS 
+     * ACC  
+     * POSITION (2 bytes)
+     * TIME (2 bytes, unused)
+     * SPEED (2 bytes)
+     * CHECKSUM
+     */
+
+    packet[0]  = 0xFFU;
+    packet[1]  = 0xFFU;
     packet[2]  = id;
     packet[3]  = 0x0AU;
     packet[4]  = SERVO_INSTRUCTION_WRITE;
@@ -843,8 +834,10 @@ static Servo_Result_t Servo_SendPositionCommand(uint8_t id,
 
     servo_last_response_length = 0U;
 
+    //Clear buffer before sending
     UartServo_ClearRxBuffer();
 
+    //Send the package over UART
     tx_status = UartServo_SendCommand(
         packet,
         SERVO_WRITE_POSITION_SIZE,
@@ -856,10 +849,7 @@ static Servo_Result_t Servo_SendPositionCommand(uint8_t id,
         return SERVO_RESULT_TX_ERROR;
     }
 
-    /*
-     * Do not block motion commands by waiting for a status packet.
-     * If the servo still sends one, give it a short moment and drain it.
-     */
+    //Short delay before draining
     HAL_Delay(10U);
     UartServo_ClearRxBuffer();
 
@@ -881,8 +871,18 @@ static Servo_Result_t Servo_ReadPositionOnce(uint8_t id, uint16_t *position)
 
     *position = 0U;
 
-    packet[0] = SERVO_HEADER_1;
-    packet[1] = SERVO_HEADER_2;
+    /*
+     * Read only the position of a servo:
+     *
+     * FF FF 
+     * ID 
+     * LENGTH 
+     * INSTRUCTION 
+     * POSITION (2bytes)
+     * CHECKSUM
+     */
+    packet[0] = 0xFFU;
+    packet[1] = 0xFFU;
     packet[2] = id;
     packet[3] = 0x04U;
     packet[4] = SERVO_INSTRUCTION_READ;
@@ -895,6 +895,7 @@ static Servo_Result_t Servo_ReadPositionOnce(uint8_t id, uint16_t *position)
         response[i] = 0U;
     }
 
+    //Tell the servo that we want the position value
     tx_status = UartServo_SendCommand(
         packet,
         SERVO_READ_POSITION_PACKET_LENGTH,
@@ -906,6 +907,7 @@ static Servo_Result_t Servo_ReadPositionOnce(uint8_t id, uint16_t *position)
         return SERVO_RESULT_TX_ERROR;
     }
 
+    //Read the responded position
     rx_status = UartServo_ReadResponse(
         response,
         SERVO_READ_POSITION_RESPONSE_LENGTH,
@@ -922,8 +924,8 @@ static Servo_Result_t Servo_ReadPositionOnce(uint8_t id, uint16_t *position)
         return SERVO_RESULT_RX_ERROR;
     }
 
-    if ((response[0] != SERVO_HEADER_1) ||
-        (response[1] != SERVO_HEADER_2))
+    if ((response[0] != 0xFFU) ||
+        (response[1] != 0xFFU))
     {
         return SERVO_RESULT_INVALID_HEADER;
     }
@@ -933,6 +935,7 @@ static Servo_Result_t Servo_ReadPositionOnce(uint8_t id, uint16_t *position)
         return SERVO_RESULT_INVALID_ID;
     }
 
+    //Verify that the response is valid
     calculated_checksum = Servo_CalculateChecksum(&response[2], 5U);
 
     if (response[7] != calculated_checksum)

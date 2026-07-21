@@ -1,8 +1,9 @@
 /**
  ******************************************************************************
- * @file           : kinematics.c /kinematics.h
+ * @file           : kinematics.h
  * @author         : Niklas Peter
  * @brief          : All functions regarding direct and inverse kinematics
+ *                   A detailed control flow is described in docs/kinematics.md
  ******************************************************************************
  */
 

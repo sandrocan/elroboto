@@ -1,3 +1,13 @@
+/**
+ ******************************************************************************
+ * @file           : tests.h
+ * @author         : Niklas Peter
+ * @brief          : Three distinct test cases that were used to get proof of concept
+ *                      for FK, IK and the general Homing position
+ ******************************************************************************
+ */
+
+
 #ifndef TESTS_H_
 #define TESTS_H_
 

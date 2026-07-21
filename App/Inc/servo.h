@@ -1,8 +1,10 @@
 /**
  ******************************************************************************
- * @file           : servo.h / servo.c
+ * @file           : servo.h
  * @author         : Niklas Peter
- * @brief          : All functions regarding control and communication with Feetech motors
+ * @brief          : All functions regarding control and communication with 
+ *                      Feetech motors. A detailed control flow can be found in
+ *                      /docs/kinematics.md
  ******************************************************************************
  */
 
@@ -114,8 +116,6 @@ Servo_Result_t Servo_DriveHome(void);
  * @return Servo operation result.
  */
 Servo_Result_t Servo_ReadPosition(uint8_t id, uint16_t *position);
-
-Servo_Result_t Servo_ReadPositionRetry(uint8_t id, uint16_t *position);
 
 /**
  * @brief Sends a checked position command to a configured non-fixed joint.

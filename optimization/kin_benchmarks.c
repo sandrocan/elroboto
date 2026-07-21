@@ -1,3 +1,12 @@
+/**
+ ******************************************************************************
+ * @file           : kin_benchmarks.c
+ * @author         : Niklas Peter
+ * @brief          : Manual performance benchmarks for the pure kinematics math
+ *                      without any servo movement or hardware communication
+ ******************************************************************************
+ */
+
 #include "kin_benchmarks.h"
 
 #include "kinematics.h"
@@ -57,11 +66,8 @@ typedef struct
 /* Private variables                                                          */
 /* -------------------------------------------------------------------------- */
 
-/*
- * This chain mirrors the pure geometry from kinematics.c.
- * No servo communication is done here. If the robot geometry changes in
- * kinematics.c, keep this benchmark copy in sync.
- */
+//Keep a separate copy of the pure geometry so no servo communication is needed
+//Update this chain whenever the geometry inside kinematics.c changes
 static const Benchmark_Link_t benchmark_chain[] =
 {
     { { 0.0388353f,  -8.97657e-09f, 0.0624f,       BENCHMARK_PI,    4.18253e-17f, -BENCHMARK_PI }, 1U },
@@ -121,7 +127,7 @@ static const float benchmark_ik_target_joint_deg[BENCHMARK_IK_TARGET_COUNT][KINE
     { -35.0f,  30.0f, -25.0f,  20.0f }
 };
 
-/* Soft math limits only for the isolated benchmark IK. No servo config read. */
+//Use isolated math limits here so the benchmark never reads the servo config
 static const float benchmark_joint_min_deg[KINEMATICS_ACTIVE_JOINT_COUNT] =
 {
     -115.0f,
@@ -144,30 +150,175 @@ static volatile float benchmark_sink;
 /* Private function prototypes                                                */
 /* -------------------------------------------------------------------------- */
 
+/* -------------------------------------------------------------------------- */
+/* Private function prototypes                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * @brief Sends one text string through the benchmark UART output.
+ * @param text Pointer to the null-terminated text string.
+ */
 static void benchmark_print(const char *text);
+
+/**
+ * @brief Prints the title and timing status for one benchmark section.
+ * @param title Pointer to the benchmark title.
+ */
 static void benchmark_print_header(const char *title);
+
+/**
+ * @brief Initializes the DWT cycle counter when it is available.
+ */
 static void benchmark_cycle_counter_init(void);
+
+/**
+ * @brief Reads the active benchmark timing counter.
+ * @return Current DWT cycle count or HAL tick value.
+ */
 static uint32_t benchmark_cycle_counter_read(void);
+
+/**
+ * @brief Checks whether the DWT cycle counter is active.
+ * @return 1 if the DWT cycle counter is available, otherwise 0.
+ */
 static uint8_t benchmark_cycle_counter_available(void);
 
-static void benchmark_timing_reset(Benchmark_Timing_t *timing, uint32_t iterations);
-static void benchmark_timing_add(Benchmark_Timing_t *timing, uint32_t cycles, uint64_t *sum_cycles);
-static void benchmark_timing_finish(Benchmark_Timing_t *timing, uint64_t sum_cycles);
+/**
+ * @brief Resets all values inside one timing result structure.
+ * @param timing Pointer to the timing structure.
+ * @param iterations Number of benchmark iterations.
+ */
+static void benchmark_timing_reset(
+    Benchmark_Timing_t *timing,
+    uint32_t iterations
+);
 
+/**
+ * @brief Adds one measured cycle count to the timing result.
+ * @param timing Pointer to the timing structure.
+ * @param cycles Measured cycle count.
+ * @param sum_cycles Pointer to the accumulated cycle count.
+ */
+static void benchmark_timing_add(
+    Benchmark_Timing_t *timing,
+    uint32_t cycles,
+    uint64_t *sum_cycles
+);
+
+/**
+ * @brief Calculates the average timing value after all iterations.
+ * @param timing Pointer to the timing structure.
+ * @param sum_cycles Accumulated cycle count.
+ */
+static void benchmark_timing_finish(
+    Benchmark_Timing_t *timing,
+    uint64_t sum_cycles
+);
+
+/**
+ * @brief Calculates the absolute value of one float.
+ * @param value Input value.
+ * @return Absolute input value.
+ */
 static float benchmark_absf(float value);
+
+/**
+ * @brief Returns the larger of two float values.
+ * @param a First input value.
+ * @param b Second input value.
+ * @return Larger input value.
+ */
 static float benchmark_maxf(float a, float b);
-static void benchmark_clampf(float *value, float min_value, float max_value);
+
+/**
+ * @brief Clamps one float into the provided range.
+ * @param value Pointer to the value that will be clamped.
+ * @param min_value Minimum allowed value.
+ * @param max_value Maximum allowed value.
+ */
+static void benchmark_clampf(
+    float *value,
+    float min_value,
+    float max_value
+);
+
+/**
+ * @brief Converts an angle from degrees to radians.
+ * @param deg Angle in degrees.
+ * @return Angle in radians.
+ */
 static float benchmark_deg_to_rad(float deg);
+
+/**
+ * @brief Converts an angle from radians to degrees.
+ * @param rad Angle in radians.
+ * @return Angle in degrees.
+ */
 static float benchmark_rad_to_deg(float rad);
-static float benchmark_position_distance(const Kinematics_Position_t *a, const Kinematics_Position_t *b);
-static float benchmark_position_distance_squared(const Kinematics_Position_t *a, const Kinematics_Position_t *b);
-static float benchmark_transform_position_error(const Kinematics_Transform_t *a, const Kinematics_Transform_t *b);
-static float benchmark_transform_rotation_error(const Kinematics_Transform_t *a, const Kinematics_Transform_t *b);
+
+/**
+ * @brief Calculates the Euclidean distance between two Cartesian positions.
+ * @param a Pointer to the first Cartesian position.
+ * @param b Pointer to the second Cartesian position.
+ * @return Euclidean distance in meters.
+ */
+static float benchmark_position_distance(
+    const Kinematics_Position_t *a,
+    const Kinematics_Position_t *b
+);
+
+/**
+ * @brief Calculates the squared distance between two Cartesian positions.
+ * @param a Pointer to the first Cartesian position.
+ * @param b Pointer to the second Cartesian position.
+ * @return Squared Euclidean distance in square meters.
+ */
+static float benchmark_position_distance_squared(
+    const Kinematics_Position_t *a,
+    const Kinematics_Position_t *b
+);
+
+/**
+ * @brief Calculates the TCP position difference between two transforms.
+ * @param a Pointer to the first transformation matrix.
+ * @param b Pointer to the second transformation matrix.
+ * @return Euclidean TCP position error in meters.
+ */
+static float benchmark_transform_position_error(
+    const Kinematics_Transform_t *a,
+    const Kinematics_Transform_t *b
+);
+
+/**
+ * @brief Calculates the difference between two rotation matrices.
+ * @param a Pointer to the first transformation matrix.
+ * @param b Pointer to the second transformation matrix.
+ * @return Frobenius error of the two rotation blocks.
+ */
+static float benchmark_transform_rotation_error(
+    const Kinematics_Transform_t *a,
+    const Kinematics_Transform_t *b
+);
+
+/**
+ * @brief Finds the largest absolute element difference between two matrices.
+ * @param A First input matrix.
+ * @param B Second input matrix.
+ * @return Largest absolute matrix element error.
+ */
 static float benchmark_matrix_max_abs_error(
     const float A[KINEMATICS_MATRIX_SIZE][KINEMATICS_MATRIX_SIZE],
     const float B[KINEMATICS_MATRIX_SIZE][KINEMATICS_MATRIX_SIZE]
 );
 
+/**
+ * @brief Calculates the benchmark forward kinematics from joint radians.
+ * @param joint_rad Active joint angles in radians.
+ * @param transform Pointer where the final transform will be stored.
+ * @param trig_mode Trigonometry implementation used by the calculation.
+ * @param matmul_mode Matrix multiplication implementation used by the calculation.
+ * @return Servo result code.
+ */
 static Servo_Result_t benchmark_forward_rad(
     const float joint_rad[KINEMATICS_ACTIVE_JOINT_COUNT],
     Kinematics_Transform_t *transform,
@@ -175,6 +326,14 @@ static Servo_Result_t benchmark_forward_rad(
     op_matmul_mode_t matmul_mode
 );
 
+/**
+ * @brief Calculates the benchmark forward kinematics from joint degrees.
+ * @param joint_deg Active joint angles in degrees.
+ * @param transform Pointer where the final transform will be stored.
+ * @param trig_mode Trigonometry implementation used by the calculation.
+ * @param matmul_mode Matrix multiplication implementation used by the calculation.
+ * @return Servo result code.
+ */
 static Servo_Result_t benchmark_forward_deg(
     const float joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT],
     Kinematics_Transform_t *transform,
@@ -182,6 +341,14 @@ static Servo_Result_t benchmark_forward_deg(
     op_matmul_mode_t matmul_mode
 );
 
+/**
+ * @brief Calculates only the TCP position for the provided joint angles.
+ * @param joint_deg Active joint angles in degrees.
+ * @param position Pointer where the Cartesian position will be stored.
+ * @param trig_mode Trigonometry implementation used by the calculation.
+ * @param matmul_mode Matrix multiplication implementation used by the calculation.
+ * @return Servo result code.
+ */
 static Servo_Result_t benchmark_forward_position_deg(
     const float joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT],
     Kinematics_Position_t *position,
@@ -189,6 +356,15 @@ static Servo_Result_t benchmark_forward_position_deg(
     op_matmul_mode_t matmul_mode
 );
 
+/**
+ * @brief Solves one Cartesian position target with the isolated benchmark IK.
+ * @param target_position Pointer to the requested Cartesian target.
+ * @param seed_joint_deg Initial joint angle estimate in degrees.
+ * @param result_joint_deg Array where the solved joint angles will be stored.
+ * @param trig_mode Trigonometry implementation used by the calculation.
+ * @param matmul_mode Matrix multiplication implementation used by the calculation.
+ * @return IK result and number of used iterations.
+ */
 static Benchmark_IkStatus_t benchmark_inverse_position_deg(
     const Kinematics_Position_t *target_position,
     const float seed_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT],
@@ -197,6 +373,13 @@ static Benchmark_IkStatus_t benchmark_inverse_position_deg(
     op_matmul_mode_t matmul_mode
 );
 
+/**
+ * @brief Measures the runtime and numerical error of one sine implementation.
+ * @param trig_mode Sine implementation that will be measured.
+ * @param iterations Number of benchmark iterations.
+ * @param timing Pointer where the timing result will be stored.
+ * @param max_error Pointer where the maximum numerical error will be stored.
+ */
 static void benchmark_measure_sin(
     op_trig_mode_t trig_mode,
     uint32_t iterations,
@@ -204,6 +387,13 @@ static void benchmark_measure_sin(
     float *max_error
 );
 
+/**
+ * @brief Measures the runtime and numerical error of one cosine implementation.
+ * @param trig_mode Cosine implementation that will be measured.
+ * @param iterations Number of benchmark iterations.
+ * @param timing Pointer where the timing result will be stored.
+ * @param max_error Pointer where the maximum numerical error will be stored.
+ */
 static void benchmark_measure_cos(
     op_trig_mode_t trig_mode,
     uint32_t iterations,
@@ -211,6 +401,13 @@ static void benchmark_measure_cos(
     float *max_error
 );
 
+/**
+ * @brief Measures one matrix multiplication implementation.
+ * @param matmul_mode Matrix multiplication implementation that will be measured.
+ * @param iterations Number of benchmark iterations.
+ * @param timing Pointer where the timing result will be stored.
+ * @param max_error Pointer where the maximum matrix error will be stored.
+ */
 static void benchmark_measure_matmul(
     op_matmul_mode_t matmul_mode,
     uint32_t iterations,
@@ -218,6 +415,15 @@ static void benchmark_measure_matmul(
     float *max_error
 );
 
+/**
+ * @brief Measures one complete forward kinematics configuration.
+ * @param trig_mode Trigonometry implementation used by the calculation.
+ * @param matmul_mode Matrix multiplication implementation used by the calculation.
+ * @param iterations Number of benchmark iterations.
+ * @param timing Pointer where the timing result will be stored.
+ * @param max_pos_error Pointer where the maximum position error will be stored.
+ * @param max_rot_error Pointer where the maximum rotation error will be stored.
+ */
 static void benchmark_measure_fk(
     op_trig_mode_t trig_mode,
     op_matmul_mode_t matmul_mode,
@@ -227,6 +433,16 @@ static void benchmark_measure_fk(
     float *max_rot_error
 );
 
+/**
+ * @brief Measures one complete inverse kinematics configuration.
+ * @param trig_mode Trigonometry implementation used by the calculation.
+ * @param matmul_mode Matrix multiplication implementation used by the calculation.
+ * @param iterations Number of benchmark iterations.
+ * @param timing Pointer where the timing result will be stored.
+ * @param max_target_error Pointer where the maximum target error will be stored.
+ * @param fail_count Pointer where the number of failed solves will be stored.
+ * @param avg_ik_iterations Pointer where the average solver iterations will be stored.
+ */
 static void benchmark_measure_ik(
     op_trig_mode_t trig_mode,
     op_matmul_mode_t matmul_mode,
@@ -309,10 +525,8 @@ void Tests_Benchmarks(void)
 			.iterations = APP_BENCHMARK_ITERATIONS
 		},
 
-		/*
-		 * Now the same setups again, but with direct formula enabled.
-		 * This is useful to see if skipping the generic transform chain helps.
-		 */
+        //These tests can implement a direkt formula and further increase the speedup
+        //Direct formula was not implemented yet!!!
 		{
 			.name = "direct_standard_baseline_matmul",
 			.trig_mode = OP_TRIG_STANDARD,
@@ -385,10 +599,8 @@ void Tests_Benchmarks(void)
 	UartDebug_SendString("==================================================\r\n");
 	UartDebug_SendString("\r\n");
 
-	/*
-	 * First test all trigonometry backends alone.
-	 * This tells us how expensive sin/cos are without FK or IK around it.
-	 */
+    //Test every trigonometry backend on its own first
+    //This shows the cost of sine and cosine without FK or IK around them
 	UartDebug_SendString("\r\n--- single trig benchmarks ---\r\n");
 	KinematicBenchmark_RunSinTest(OP_TRIG_STANDARD);
 	KinematicBenchmark_RunSinTest(OP_TRIG_LOOKUP);
@@ -398,19 +610,15 @@ void Tests_Benchmarks(void)
 	KinematicBenchmark_RunCosTest(OP_TRIG_LOOKUP);
 	KinematicBenchmark_RunCosTest(OP_TRIG_ARM_FAST);
 
-	/*
-	 * Now test all matrix multiplication backends alone.
-	 * This isolates the matrix part from the kinematics code.
-	 */
+    //Test every matrix backend on its own next
+    //This keeps the matrix results separate from the rest of the kinematics
 	UartDebug_SendString("\r\n--- single matrix benchmarks ---\r\n");
 	KinematicBenchmark_RunMatMulTest(OP_MATMUL_BASELINE);
 	KinematicBenchmark_RunMatMulTest(OP_MATMUL_OPTIMIZED);
 	KinematicBenchmark_RunMatMulTest(OP_MATMUL_HOMOGENEOUS);
 
-	/*
-	 * Now run FK for every trig and matrix combination.
-	 * These tests still use only dummy joint angles from the benchmark code.
-	 */
+    //Run FK with every trigonometry and matrix combination
+    //Only the hardcoded benchmark joint angles are used here
 	UartDebug_SendString("\r\n--- single FK benchmarks ---\r\n");
 
 	KinematicBenchmark_RunFKTest(OP_TRIG_STANDARD, OP_MATMUL_BASELINE);
@@ -425,10 +633,8 @@ void Tests_Benchmarks(void)
 	KinematicBenchmark_RunFKTest(OP_TRIG_ARM_FAST, OP_MATMUL_OPTIMIZED);
 	KinematicBenchmark_RunFKTest(OP_TRIG_ARM_FAST, OP_MATMUL_HOMOGENEOUS);
 
-	/*
-	 * Now run IK for every trig and matrix combination.
-	 * This uses dummy targets and does not write servo positions.
-	 */
+    //Run IK with every trigonometry and matrix combination
+    //The targets are generated in software and no servo commands are written
 	UartDebug_SendString("\r\n--- single IK benchmarks ---\r\n");
 
 	KinematicBenchmark_RunIKTest(OP_TRIG_STANDARD, OP_MATMUL_BASELINE);
@@ -443,10 +649,8 @@ void Tests_Benchmarks(void)
 	KinematicBenchmark_RunIKTest(OP_TRIG_ARM_FAST, OP_MATMUL_OPTIMIZED);
 	KinematicBenchmark_RunIKTest(OP_TRIG_ARM_FAST, OP_MATMUL_HOMOGENEOUS);
 
-	/*
-	 * Now run the config-style benchmark table.
-	 * This gives one clean named result per complete setup.
-	 */
+    //Run the named config table at the end
+    //This gives one combined FK and IK result for every complete setup
 	UartDebug_SendString("\r\n--- full config benchmarks ---\r\n");
 
 	for (uint8_t i = 0U; i < (uint8_t)(sizeof(benchmark_configs) / sizeof(benchmark_configs[0])); i++)
@@ -475,7 +679,10 @@ void KinematicBenchmark_RunSinTest(op_trig_mode_t trig_mode)
 
     benchmark_cycle_counter_init();
 
+    //Measure the standard implementation first so every test has a fresh baseline
     benchmark_measure_sin(OP_TRIG_STANDARD, KIN_BENCHMARK_DEFAULT_MICRO_ITERATIONS, &baseline_timing, &baseline_error);
+
+    //Measure the selected implementation with the same sample count
     benchmark_measure_sin(trig_mode, KIN_BENCHMARK_DEFAULT_MICRO_ITERATIONS, &test_timing, &test_error);
 
     if (test_timing.avg_cycles > 0U)
@@ -514,7 +721,10 @@ void KinematicBenchmark_RunCosTest(op_trig_mode_t trig_mode)
 
     benchmark_cycle_counter_init();
 
+    //Measure the standard implementation first so every test has a fresh baseline
     benchmark_measure_cos(OP_TRIG_STANDARD, KIN_BENCHMARK_DEFAULT_MICRO_ITERATIONS, &baseline_timing, &baseline_error);
+
+    //Measure the selected implementation with the same sample count
     benchmark_measure_cos(trig_mode, KIN_BENCHMARK_DEFAULT_MICRO_ITERATIONS, &test_timing, &test_error);
 
     if (test_timing.avg_cycles > 0U)
@@ -553,7 +763,10 @@ void KinematicBenchmark_RunMatMulTest(op_matmul_mode_t matmul_mode)
 
     benchmark_cycle_counter_init();
 
+    //Measure the generic row by column multiplication as the baseline
     benchmark_measure_matmul(OP_MATMUL_BASELINE, KIN_BENCHMARK_DEFAULT_MICRO_ITERATIONS, &baseline_timing, &baseline_error);
+
+    //Measure the selected implementation with the same matrices
     benchmark_measure_matmul(matmul_mode, KIN_BENCHMARK_DEFAULT_MICRO_ITERATIONS, &test_timing, &test_error);
 
     if (test_timing.avg_cycles > 0U)
@@ -594,7 +807,10 @@ void KinematicBenchmark_RunFKTest(op_trig_mode_t trig_mode, op_matmul_mode_t mat
 
     benchmark_cycle_counter_init();
 
+    //Measure the normal FK path first so every combination uses the same baseline
     benchmark_measure_fk(OP_TRIG_STANDARD, OP_MATMUL_BASELINE, KIN_BENCHMARK_DEFAULT_FK_ITERATIONS, &baseline_timing, &baseline_pos_error, &baseline_rot_error);
+
+    //Measure the selected trigonometry and matrix combination
     benchmark_measure_fk(trig_mode, matmul_mode, KIN_BENCHMARK_DEFAULT_FK_ITERATIONS, &test_timing, &test_pos_error, &test_rot_error);
 
     if (test_timing.avg_cycles > 0U)
@@ -639,7 +855,10 @@ void KinematicBenchmark_RunIKTest(op_trig_mode_t trig_mode, op_matmul_mode_t mat
 
     benchmark_cycle_counter_init();
 
+    //Measure the normal IK path first so every combination uses the same baseline
     benchmark_measure_ik(OP_TRIG_STANDARD, OP_MATMUL_BASELINE, KIN_BENCHMARK_DEFAULT_IK_ITERATIONS, &baseline_timing, &baseline_target_error, &baseline_fail_count, &baseline_avg_iter);
+
+    //Measure the selected trigonometry and matrix combination
     benchmark_measure_ik(trig_mode, matmul_mode, KIN_BENCHMARK_DEFAULT_IK_ITERATIONS, &test_timing, &test_target_error, &test_fail_count, &test_avg_iter);
 
     if (test_timing.avg_cycles > 0U)
@@ -697,6 +916,7 @@ void KinematicBenchmark_RunConfig(const kin_benchmark_config_t *config)
         return;
     }
 
+    //Use the default FK iteration count when the config contains zero
     iterations = config->iterations;
     if (iterations == 0U)
     {
@@ -705,9 +925,11 @@ void KinematicBenchmark_RunConfig(const kin_benchmark_config_t *config)
 
     benchmark_cycle_counter_init();
 
+    //Run the standard and selected FK configurations with the same iteration count
     benchmark_measure_fk(OP_TRIG_STANDARD, OP_MATMUL_BASELINE, iterations, &baseline_fk_timing, &baseline_fk_pos_error, &baseline_fk_rot_error);
     benchmark_measure_fk(config->trig_mode, config->matmul_mode, iterations, &test_fk_timing, &test_fk_pos_error, &test_fk_rot_error);
 
+    //Run the standard and selected IK configurations with the same iteration count
     benchmark_measure_ik(OP_TRIG_STANDARD, OP_MATMUL_BASELINE, iterations, &baseline_ik_timing, &baseline_ik_target_error, &baseline_ik_fail_count, &baseline_ik_avg_iter);
     benchmark_measure_ik(config->trig_mode, config->matmul_mode, iterations, &test_ik_timing, &test_ik_target_error, &test_ik_fail_count, &test_ik_avg_iter);
 
@@ -723,6 +945,7 @@ void KinematicBenchmark_RunConfig(const kin_benchmark_config_t *config)
 
     benchmark_print_header("KINEMATIC CONFIG BENCHMARK");
 
+    //Print the complete setup before the FK and IK result rows
     snprintf(
         text,
         sizeof(text),
@@ -737,6 +960,7 @@ void KinematicBenchmark_RunConfig(const kin_benchmark_config_t *config)
 
     benchmark_print("test, avg_cycles, min_cycles, max_cycles, baseline_avg_cycles, speedup, max_error, fail_count_or_rot_error, avg_ik_iterations\r\n");
 
+    //Print the FK timing and numerical error
     snprintf(
         text,
         sizeof(text),
@@ -751,6 +975,7 @@ void KinematicBenchmark_RunConfig(const kin_benchmark_config_t *config)
     );
     benchmark_print(text);
 
+    //Print the IK timing, target error and solver statistics
     snprintf(
         text,
         sizeof(text),
@@ -782,6 +1007,7 @@ static void benchmark_measure_sin(
     benchmark_timing_reset(timing, iterations);
     *max_error = 0.0f;
 
+    //Warm up the selected implementation before the real measurements start
     for (uint8_t i = 0U; i < BENCHMARK_TRIG_SAMPLE_COUNT; i++)
     {
         benchmark_sink += op_sin(benchmark_trig_angles[i], trig_mode);
@@ -800,6 +1026,7 @@ static void benchmark_measure_sin(
         value = op_sin(angle, trig_mode);
         stop_cycles = benchmark_cycle_counter_read();
 
+        //Use the result so the compiler cannot remove the measured call
         benchmark_sink += value;
         benchmark_timing_add(timing, stop_cycles - start_cycles, &sum_cycles);
 
@@ -821,6 +1048,7 @@ static void benchmark_measure_cos(
     benchmark_timing_reset(timing, iterations);
     *max_error = 0.0f;
 
+    //Warm up the selected implementation before the real measurements start
     for (uint8_t i = 0U; i < BENCHMARK_TRIG_SAMPLE_COUNT; i++)
     {
         benchmark_sink += op_cos(benchmark_trig_angles[i], trig_mode);
@@ -839,6 +1067,7 @@ static void benchmark_measure_cos(
         value = op_cos(angle, trig_mode);
         stop_cycles = benchmark_cycle_counter_read();
 
+        //Use the result so the compiler cannot remove the measured call
         benchmark_sink += value;
         benchmark_timing_add(timing, stop_cycles - start_cycles, &sum_cycles);
 
@@ -877,10 +1106,12 @@ static void benchmark_measure_matmul(
 
     benchmark_timing_reset(timing, iterations);
 
+    //Calculate one baseline result and compare the selected backend against it
     op_mat4_mul_baseline(A, B, reference);
     op_mat4_mul(A, B, result, matmul_mode);
     *max_error = benchmark_matrix_max_abs_error(reference, result);
 
+    //Warm up the selected matrix implementation
     for (uint8_t i = 0U; i < 8U; i++)
     {
         op_mat4_mul(A, B, result, matmul_mode);
@@ -896,6 +1127,7 @@ static void benchmark_measure_matmul(
         op_mat4_mul(A, B, result, matmul_mode);
         stop_cycles = benchmark_cycle_counter_read();
 
+        //Use the result so the compiler cannot remove the measured call
         benchmark_sink += result[i % KINEMATICS_MATRIX_SIZE][3];
         benchmark_timing_add(timing, stop_cycles - start_cycles, &sum_cycles);
     }
@@ -918,6 +1150,7 @@ static void benchmark_measure_fk(
     *max_pos_error = 0.0f;
     *max_rot_error = 0.0f;
 
+    //Compare every test pose with the standard FK before measuring the runtime
     for (uint8_t i = 0U; i < BENCHMARK_FK_SAMPLE_COUNT; i++)
     {
         Kinematics_Transform_t reference;
@@ -935,12 +1168,14 @@ static void benchmark_measure_fk(
         *max_rot_error = benchmark_maxf(*max_rot_error, rot_error);
     }
 
+    //Warm up the complete FK path with every available sample
     for (uint8_t i = 0U; i < BENCHMARK_FK_SAMPLE_COUNT; i++)
     {
         (void)benchmark_forward_deg(benchmark_fk_joint_deg[i], &transform, trig_mode, matmul_mode);
         benchmark_sink += transform.m[0][3];
     }
 
+    //Measure one complete FK calculation per iteration
     for (uint32_t i = 0U; i < iterations; i++)
     {
         const uint32_t sample_index = i % BENCHMARK_FK_SAMPLE_COUNT;
@@ -951,6 +1186,7 @@ static void benchmark_measure_fk(
         (void)benchmark_forward_deg(benchmark_fk_joint_deg[sample_index], &transform, trig_mode, matmul_mode);
         stop_cycles = benchmark_cycle_counter_read();
 
+        //Use the calculated TCP so the compiler cannot remove the FK call
         benchmark_sink += transform.m[0][3] + transform.m[1][3] + transform.m[2][3];
         benchmark_timing_add(timing, stop_cycles - start_cycles, &sum_cycles);
     }
@@ -977,11 +1213,13 @@ static void benchmark_measure_ik(
     *fail_count = 0U;
     *avg_ik_iterations = 0.0f;
 
+    //Generate reachable Cartesian targets from known joint configurations
     for (uint8_t i = 0U; i < BENCHMARK_IK_TARGET_COUNT; i++)
     {
         (void)benchmark_forward_position_deg(benchmark_ik_target_joint_deg[i], &targets[i], OP_TRIG_STANDARD, OP_MATMUL_BASELINE);
     }
 
+    //Warm up the complete IK path once for every target
     for (uint8_t i = 0U; i < BENCHMARK_IK_TARGET_COUNT; i++)
     {
         float solved_deg[KINEMATICS_ACTIVE_JOINT_COUNT];
@@ -992,6 +1230,7 @@ static void benchmark_measure_ik(
         (void)status;
     }
 
+    //Measure one complete IK solve per iteration
     for (uint32_t i = 0U; i < iterations; i++)
     {
         const uint32_t target_index = i % BENCHMARK_IK_TARGET_COUNT;
@@ -1004,6 +1243,7 @@ static void benchmark_measure_ik(
         status = benchmark_inverse_position_deg(&targets[target_index], benchmark_ik_seed_deg, solved_deg, trig_mode, matmul_mode);
         stop_cycles = benchmark_cycle_counter_read();
 
+        //Use every solved angle so the compiler keeps the complete IK calculation
         benchmark_sink += solved_deg[0] + solved_deg[1] + solved_deg[2] + solved_deg[3];
         benchmark_timing_add(timing, stop_cycles - start_cycles, &sum_cycles);
 
@@ -1016,6 +1256,7 @@ static void benchmark_measure_ik(
             Kinematics_Position_t reconstructed;
             float error;
 
+            //Rebuild the solution with the standard FK for a fair error value
             (void)benchmark_forward_position_deg(solved_deg, &reconstructed, OP_TRIG_STANDARD, OP_MATMUL_BASELINE);
             error = benchmark_position_distance(&targets[target_index], &reconstructed);
             *max_target_error = benchmark_maxf(*max_target_error, error);
@@ -1052,6 +1293,7 @@ static Servo_Result_t benchmark_forward_rad(
 
     op_mat4_identity(total.m);
 
+    //Walk through the complete chain and insert angles only for active joints
     for (uint8_t i = 0U; i < (uint8_t)(sizeof(benchmark_chain) / sizeof(benchmark_chain[0])); i++)
     {
         Kinematics_Transform_t link_transform;
@@ -1069,7 +1311,10 @@ static Servo_Result_t benchmark_forward_rad(
             active_index++;
         }
 
+        //Build the local link transform with the selected trigonometry backend
         Operations_LinkTransformMode(&benchmark_chain[i].pose, q, &link_transform, trig_mode);
+
+        //Append the local transform to the complete kinematic chain
         op_mat4_mul(total.m, link_transform.m, next_total.m, matmul_mode);
         total = next_total;
     }
@@ -1119,6 +1364,7 @@ static Servo_Result_t benchmark_forward_position_deg(
         return result;
     }
 
+    //The TCP position is stored in the final column of the transform
     position->x = transform.m[0][3];
     position->y = transform.m[1][3];
     position->z = transform.m[2][3];
@@ -1146,6 +1392,7 @@ static Benchmark_IkStatus_t benchmark_inverse_position_deg(
         return status;
     }
 
+    //Copy the seed and clamp it into the isolated benchmark limits
     for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
     {
         joint_deg[i] = seed_joint_deg[i];
@@ -1166,6 +1413,7 @@ static Benchmark_IkStatus_t benchmark_inverse_position_deg(
 
         status.used_iterations = (uint16_t)(iteration + 1U);
 
+        //Calculate the current TCP from the latest joint estimate
         result = benchmark_forward_position_deg(joint_deg, &current_position, trig_mode, matmul_mode);
         if (result != SERVO_RESULT_OK)
         {
@@ -1181,6 +1429,7 @@ static Benchmark_IkStatus_t benchmark_inverse_position_deg(
 
         if (error_squared <= tolerance_squared)
         {
+            //Return the current estimate as soon as the tolerance is reached
             for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
             {
                 result_joint_deg[i] = joint_deg[i];
@@ -1190,6 +1439,7 @@ static Benchmark_IkStatus_t benchmark_inverse_position_deg(
             return status;
         }
 
+        //Build the numerical Jacobian by moving one joint at a time
         for (uint8_t joint_index = 0U; joint_index < KINEMATICS_ACTIVE_JOINT_COUNT; joint_index++)
         {
             float trial_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT];
@@ -1204,6 +1454,7 @@ static Benchmark_IkStatus_t benchmark_inverse_position_deg(
 
             trial_joint_deg[joint_index] = joint_deg[joint_index] + BENCHMARK_IK_FD_STEP_DEG;
 
+            //Step backwards when the positive test step exceeds the limit
             if (trial_joint_deg[joint_index] > benchmark_joint_max_deg[joint_index])
             {
                 trial_joint_deg[joint_index] = joint_deg[joint_index] - BENCHMARK_IK_FD_STEP_DEG;
@@ -1235,6 +1486,7 @@ static Benchmark_IkStatus_t benchmark_inverse_position_deg(
             }
         }
 
+        //Build J*J^T and add damping to the diagonal
         for (uint8_t row = 0U; row < 3U; row++)
         {
             for (uint8_t col = 0U; col < 3U; col++)
@@ -1259,6 +1511,7 @@ static Benchmark_IkStatus_t benchmark_inverse_position_deg(
             return status;
         }
 
+        //Multiply the inverted task space matrix with the Cartesian error
         for (uint8_t row = 0U; row < 3U; row++)
         {
             v[row] = 0.0f;
@@ -1269,6 +1522,7 @@ static Benchmark_IkStatus_t benchmark_inverse_position_deg(
             }
         }
 
+        //Project the task space correction back into all active joints
         for (uint8_t joint_index = 0U; joint_index < KINEMATICS_ACTIVE_JOINT_COUNT; joint_index++)
         {
             float delta_rad = 0.0f;
@@ -1287,6 +1541,7 @@ static Benchmark_IkStatus_t benchmark_inverse_position_deg(
         }
     }
 
+    //Return the final estimate even when the target tolerance was not reached
     for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
     {
         result_joint_deg[i] = joint_deg[i];
@@ -1336,6 +1591,7 @@ static uint32_t benchmark_cycle_counter_read(void)
     }
 #endif
 
+    //Fall back to the HAL tick when the DWT counter is not available
     return HAL_GetTick();
 }
 
@@ -1492,6 +1748,7 @@ static float benchmark_transform_rotation_error(const Kinematics_Transform_t *a,
         return 0.0f;
     }
 
+    //Compare only the upper 3x3 rotation blocks
     for (uint8_t row = 0U; row < 3U; row++)
     {
         for (uint8_t col = 0U; col < 3U; col++)
@@ -1514,7 +1771,7 @@ static float benchmark_matrix_max_abs_error(
     {
         return 0.0f;
     }
-
+    //Find the largest absolute difference anywhere in both matrices
     for (uint8_t row = 0U; row < KINEMATICS_MATRIX_SIZE; row++)
     {
         for (uint8_t col = 0U; col < KINEMATICS_MATRIX_SIZE; col++)

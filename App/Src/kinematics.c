@@ -1,3 +1,12 @@
+/**
+ ******************************************************************************
+ * @file           : kinematics.c
+ * @author         : Niklas Peter
+ * @brief          : All functions regarding direct and inverse kinematics
+ *                   A detailed control flow is described in docs/kinematics.md
+ ******************************************************************************
+ */
+
 #include "kinematics.h"
 #include "control.h"
 #include "uart.h"
@@ -219,6 +228,7 @@ Servo_Result_t Kinematics_AngleDegToRaw(uint8_t joint_id, float angle_deg, uint1
 
 Servo_Result_t Kinematics_ForwardRad(const float joint_rad[KINEMATICS_ACTIVE_JOINT_COUNT], Kinematics_Transform_t *transform)
 {
+    //Init
     Kinematics_Transform_t total;
     uint8_t active_index = 0U;
 
@@ -227,8 +237,10 @@ Servo_Result_t Kinematics_ForwardRad(const float joint_rad[KINEMATICS_ACTIVE_JOI
         return SERVO_RESULT_NULL_POINTER;
     }
 
+    //Init the matrix as identity
     Operations_SetIdentity(&total);
 
+    //For each Link, find the local transformation matrix and multiply it with the prev. ones to get global
     for (uint8_t i = 0U; i < (uint8_t)(sizeof(kinematics_chain) / sizeof(kinematics_chain[0])); i++)
     {
         Kinematics_Transform_t link_transform;
@@ -274,6 +286,7 @@ Servo_Result_t Kinematics_ForwardDeg(const float joint_deg[KINEMATICS_ACTIVE_JOI
         joint_rad[i] = Kinematics_DegToRad(joint_deg[i]);
     }
 
+    //The FK is done in rad, therefore first we convert
     return Kinematics_ForwardRad(joint_rad, transform);
 }
 
@@ -307,6 +320,7 @@ void Kinematics_GetDefaultIkConfig(Kinematics_IkConfig_t *config)
 
 Servo_Result_t Kinematics_InversePositionDeg(const Kinematics_Position_t *target_position, const float seed_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT], const Kinematics_IkConfig_t *config, float result_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT])
 {
+    //Init
     Servo_Result_t result;
     Kinematics_IkConfig_t local_config;
     float joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT];
@@ -319,6 +333,7 @@ Servo_Result_t Kinematics_InversePositionDeg(const Kinematics_Position_t *target
         return SERVO_RESULT_NULL_POINTER;
     }
 
+    //Load config (If it fails we take default)
     if (config == NULL)
     {
         Kinematics_GetDefaultIkConfig(&local_config);
@@ -353,6 +368,7 @@ Servo_Result_t Kinematics_InversePositionDeg(const Kinematics_Position_t *target
         local_config.max_step_deg = KINEMATICS_IK_DEFAULT_MAX_STEP_DEG;
     }
 
+    //Load in joint limits
     for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
     {
         result = Kinematics_GetJointLimitsDeg((uint8_t)(KINEMATICS_ACTIVE_FIRST_ID + i), &min_deg[i], &max_deg[i]);
@@ -362,6 +378,7 @@ Servo_Result_t Kinematics_InversePositionDeg(const Kinematics_Position_t *target
         }
 
         joint_deg[i] = seed_joint_deg[i];
+        //Clamp to alllowed range
         Kinematics_ClampFloat(&joint_deg[i], min_deg[i], max_deg[i]);
     }
 
@@ -369,6 +386,7 @@ Servo_Result_t Kinematics_InversePositionDeg(const Kinematics_Position_t *target
 
     for (uint16_t iteration = 0U; iteration < local_config.max_iterations; iteration++)
     {
+        //Init
         Kinematics_Position_t current_position;
         float error[3];
         float error_squared;
@@ -378,18 +396,22 @@ Servo_Result_t Kinematics_InversePositionDeg(const Kinematics_Position_t *target
         float v[3];
         float max_abs_delta = 0.0f;
 
+        //Compute current cartesian position (xyz)
         result = Kinematics_ForwardPositionDeg(joint_deg, &current_position);
         if (result != SERVO_RESULT_OK)
         {
             return result;
         }
 
+        //Compute error for each dimension
         error[0] = target_position->x - current_position.x;
         error[1] = target_position->y - current_position.y;
         error[2] = target_position->z - current_position.z;
 
+        //Total error from current position to target
         error_squared = Kinematics_PositionDistanceSquared(target_position, &current_position);
 
+        //If we reached the target we take the current as goal position
         if (error_squared <= tolerance_squared)
         {
             for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
@@ -400,8 +422,10 @@ Servo_Result_t Kinematics_InversePositionDeg(const Kinematics_Position_t *target
             return SERVO_RESULT_OK;
         }
 
+        //Move each (active) joint towards all the trials target (numerical trials, to determine the direction!)
         for (uint8_t joint_index = 0U; joint_index < KINEMATICS_ACTIVE_JOINT_COUNT; joint_index++)
         {
+            //Init
             float trial_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT];
             float actual_step_deg;
             Kinematics_Position_t trial_position;
@@ -411,6 +435,7 @@ Servo_Result_t Kinematics_InversePositionDeg(const Kinematics_Position_t *target
                 trial_joint_deg[i] = joint_deg[i];
             }
 
+            //Move joint a little
             trial_joint_deg[joint_index] = joint_deg[joint_index] + local_config.finite_difference_step_deg;
 
             if (trial_joint_deg[joint_index] > max_deg[joint_index])
@@ -418,12 +443,14 @@ Servo_Result_t Kinematics_InversePositionDeg(const Kinematics_Position_t *target
                 trial_joint_deg[joint_index] = joint_deg[joint_index] - local_config.finite_difference_step_deg;
             }
 
+            //Clamp the value if it is out of range
             Kinematics_ClampFloat(&trial_joint_deg[joint_index], min_deg[joint_index], max_deg[joint_index]);
 
             actual_step_deg = trial_joint_deg[joint_index] - joint_deg[joint_index];
 
             float actual_step_rad = Kinematics_DegToRad(actual_step_deg);
 
+            //Push the Jacobian to 0 for very small rotations
             if ((actual_step_rad > -0.000001f) && (actual_step_rad < 0.000001f))
             {
                 jacobian[0][joint_index] = 0.0f;
@@ -432,18 +459,22 @@ Servo_Result_t Kinematics_InversePositionDeg(const Kinematics_Position_t *target
             }
             else
             {
+                //Solve for the cartesian coordinates to see how much we effect the end effector with the movement
                 result = Kinematics_ForwardPositionDeg(trial_joint_deg, &trial_position);
                 if (result != SERVO_RESULT_OK)
                 {
                     return result;
                 }
 
+                //Fill the jacobians with the effect on the xyz coordinates of the joint
                 jacobian[0][joint_index] = (trial_position.x - current_position.x) / actual_step_rad;
                 jacobian[1][joint_index] = (trial_position.y - current_position.y) / actual_step_rad;
                 jacobian[2][joint_index] = (trial_position.z - current_position.z) / actual_step_rad;
             }
         }
 
+        //Solve Levenberg-Marquardt
+        //Step 1: J_T * J + lambda * I
         for (uint8_t row = 0U; row < 3U; row++)
         {
             for (uint8_t col = 0U; col < 3U; col++)
@@ -462,6 +493,7 @@ Servo_Result_t Kinematics_InversePositionDeg(const Kinematics_Position_t *target
             }
         }
 
+        //Step 2: Invert the above
         if (Operations_Invert3x3(a, a_inv) == 0U)
         {
             return SERVO_RESULT_TARGET_NOT_REACHED;
@@ -477,6 +509,7 @@ Servo_Result_t Kinematics_InversePositionDeg(const Kinematics_Position_t *target
             }
         }
 
+        //Step 3: Compute the relative joint angles for the iteration
         for (uint8_t joint_index = 0U; joint_index < KINEMATICS_ACTIVE_JOINT_COUNT; joint_index++)
         {
             float delta_rad = 0.0f;
@@ -506,6 +539,7 @@ Servo_Result_t Kinematics_InversePositionDeg(const Kinematics_Position_t *target
                 }
             }
 
+            //Add the relative angle to the current one to get the new one 
             joint_deg[joint_index] += delta_deg;
             Kinematics_ClampFloat(&joint_deg[joint_index], min_deg[joint_index], max_deg[joint_index]);
         }
@@ -524,6 +558,7 @@ Servo_Result_t Kinematics_InversePositionRaw(const Kinematics_Position_t *target
         return SERVO_RESULT_NULL_POINTER;
     }
 
+    //Run the IK with degree and convert after
     result = Kinematics_InversePositionDeg(target_position, seed_joint_deg, config, result_joint_deg);
     if (result != SERVO_RESULT_OK)
     {
@@ -544,6 +579,7 @@ Servo_Result_t Kinematics_InversePositionRaw(const Kinematics_Position_t *target
 
 Servo_Result_t Kinematics_MoveEndEffectorToPosition(const Kinematics_Position_t *target_position, uint16_t speed, uint8_t acceleration, const Kinematics_IkConfig_t *config)
 {
+    //Init
     Servo_Result_t result;
     float seed_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT];
     uint16_t target_raw[KINEMATICS_ACTIVE_JOINT_COUNT];
@@ -553,18 +589,21 @@ Servo_Result_t Kinematics_MoveEndEffectorToPosition(const Kinematics_Position_t 
         return SERVO_RESULT_NULL_POINTER;
     }
 
+    //Get starting joint angles
     result = Kinematics_ReadCurrentJointAnglesDeg(seed_joint_deg);
     if (result != SERVO_RESULT_OK)
     {
         return result;
     }
 
+    //Solve IK and return the target position
     result = Kinematics_InversePositionRaw(target_position, seed_joint_deg, config, target_raw);
     if (result != SERVO_RESULT_OK)
     {
         return result;
     }
 
+    //Send the target tick VALUES over UART to each Servo
     for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
     {
         result = Servo_WritePosition((uint8_t)(KINEMATICS_ACTIVE_FIRST_ID + i), target_raw[i], speed, acceleration);
@@ -579,6 +618,7 @@ Servo_Result_t Kinematics_MoveEndEffectorToPosition(const Kinematics_Position_t 
 
 Servo_Result_t Kinematics_MoveEndEffectorToPositionAndWait(const Kinematics_Position_t *target_position, uint16_t speed, uint8_t acceleration, uint16_t tolerance_ticks, uint32_t timeout_ms, const Kinematics_IkConfig_t *config, Kinematics_AbortCallback_t abort_callback)
 {
+    //Init
     Servo_Result_t result;
     float seed_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT];
     uint16_t target_raw[KINEMATICS_ACTIVE_JOINT_COUNT];
@@ -588,18 +628,21 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionAndWait(const Kinematics_Posi
         return SERVO_RESULT_NULL_POINTER;
     }
 
+    //Get starting joint angles
     result = Kinematics_ReadCurrentJointAnglesDeg(seed_joint_deg);
     if (result != SERVO_RESULT_OK)
     {
         return result;
     }
 
+    //Solve IK and return target tick values
     result = Kinematics_InversePositionRaw(target_position, seed_joint_deg, config, target_raw);
     if (result != SERVO_RESULT_OK)
     {
         return result;
     }
 
+    //Callback needed to stop the blocking function regardless
     if (abort_callback != NULL)
     {
         if (abort_callback() != 0U)
@@ -618,6 +661,7 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionAndWait(const Kinematics_Posi
     	    }
     	}
 
+        //Write the target tick values over UART to the servos
         result = Servo_WritePosition((uint8_t)(KINEMATICS_ACTIVE_FIRST_ID + i), target_raw[i], speed, acceleration);
         if (result != SERVO_RESULT_OK)
         {
@@ -625,6 +669,7 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionAndWait(const Kinematics_Posi
         }
     }
 
+    //Blocking logic: Keep polling the target values until they are reached (with timeout)
     for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
     {
         result = Kinematics_WaitUntilJointReached((uint8_t)(KINEMATICS_ACTIVE_FIRST_ID + i), target_raw[i], tolerance_ticks, timeout_ms, abort_callback);
@@ -637,9 +682,9 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionAndWait(const Kinematics_Posi
     return SERVO_RESULT_OK;
 }
 
-
 Servo_Result_t Kinematics_MoveEndEffectorToPositionControlled(const Kinematics_Position_t *target_position, uint16_t speed, uint8_t acceleration, uint16_t tolerance_ticks, uint32_t timeout_ms, const Kinematics_IkConfig_t *config, Kinematics_AbortCallback_t abort_callback, Kinematics_ControlTelemetryCallback_t telemetry_callback)
 {
+    //Init
     Servo_Result_t result;
     float seed_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT];
     uint16_t target_raw[KINEMATICS_ACTIVE_JOINT_COUNT];
@@ -656,12 +701,14 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionControlled(const Kinematics_P
         return SERVO_RESULT_NULL_POINTER;
     }
 
+    //Read starting joint angles
     result = Kinematics_ReadCurrentJointAnglesDeg(seed_joint_deg);
     if (result != SERVO_RESULT_OK)
     {
         return result;
     }
 
+    //Solve IK and return target tick values
     result = Kinematics_InversePositionRaw(target_position, seed_joint_deg, config, target_raw);
     if (result != SERVO_RESULT_OK)
     {
@@ -676,6 +723,7 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionControlled(const Kinematics_P
     start_time = HAL_GetTick();
     previous_cycle_time = start_time;
 
+    //Control loop
     while ((uint32_t)(HAL_GetTick() - start_time) < timeout_ms)
     {
         const uint32_t cycle_start_time = HAL_GetTick();
@@ -840,6 +888,7 @@ Servo_Result_t Kinematics_ReadCurrentJointAnglesDeg(float joint_deg[KINEMATICS_A
         return SERVO_RESULT_NULL_POINTER;
     }
 
+    //Read each joints current vlaue
     for (uint8_t joint_id = KINEMATICS_ACTIVE_FIRST_ID; joint_id <= KINEMATICS_ACTIVE_LAST_ID; joint_id++)
     {
         uint16_t raw_position = 0U;
@@ -850,6 +899,7 @@ Servo_Result_t Kinematics_ReadCurrentJointAnglesDeg(float joint_deg[KINEMATICS_A
             return result;
         }
 
+        //Convert to angle
         result = Kinematics_RawToAngleDeg(joint_id, raw_position, &joint_deg[joint_id - KINEMATICS_ACTIVE_FIRST_ID]);
         if (result != SERVO_RESULT_OK)
         {
@@ -876,6 +926,7 @@ Servo_Result_t Kinematics_ReadCurrentEndEffector(Kinematics_Transform_t *transfo
         return result;
     }
 
+    //Return the results of forward kinematics
     return Kinematics_ForwardDeg(joint_deg, transform);
 }
 
@@ -898,18 +949,21 @@ Servo_Result_t Kinematics_MoveJointRelativeDegAndWait(uint8_t joint_id, float de
     Servo_Result_t result;
     uint16_t target_raw;
 
+    //Move joint relative to an angle
     result = Kinematics_CalculateRelativeTargetRaw(joint_id, delta_deg, &target_raw);
     if (result != SERVO_RESULT_OK)
     {
         return result;
     }
 
+    //Tell the Servo over UART to move to the absolute tick value (current + relative)
     result = Servo_WritePosition(joint_id, target_raw, speed, acceleration);
     if (result != SERVO_RESULT_OK)
     {
         return result;
     }
 
+    //Keep polling the value until the joint is reached (with timeout)
     return Kinematics_WaitUntilJointReached(joint_id, target_raw, tolerance_ticks, timeout_ms, abort_callback);
 }
 
@@ -918,12 +972,14 @@ Servo_Result_t Kinematics_MoveJointToAngleDeg(uint8_t joint_id, float angle_deg,
     Servo_Result_t result;
     uint16_t target_raw;
 
+    //Convert to raw ticks
     result = Kinematics_AngleDegToRaw(joint_id, angle_deg, &target_raw);
     if (result != SERVO_RESULT_OK)
     {
         return result;
     }
 
+    //Send the absolute tick value over UART to the servo
     return Servo_WritePosition(joint_id, target_raw, speed, acceleration);
 }
 
@@ -932,27 +988,27 @@ Servo_Result_t Kinematics_MoveJointToAngleDegAndWait(uint8_t joint_id, float ang
     Servo_Result_t result;
     uint16_t target_raw;
 
+    //Convert angle to raw ticks
     result = Kinematics_AngleDegToRaw(joint_id, angle_deg, &target_raw);
     if (result != SERVO_RESULT_OK)
     {
         return result;
     }
 
+    //Write the new position over UART to the servo
     result = Servo_WritePosition(joint_id, target_raw, speed, acceleration);
     if (result != SERVO_RESULT_OK)
     {
         return result;
     }
 
+    //Keep polling until target tick value is reached
     return Kinematics_WaitUntilJointReached(joint_id, target_raw, tolerance_ticks, timeout_ms, abort_callback);
 }
 
-Servo_Result_t Kinematics_WaitUntilJointReached(uint8_t joint_id,
-                                                uint16_t target_position_ticks,
-                                                uint16_t tolerance_ticks,
-                                                uint32_t timeout_ms,
-                                                Kinematics_AbortCallback_t abort_callback)
+Servo_Result_t Kinematics_WaitUntilJointReached(uint8_t joint_id, uint16_t target_position_ticks, uint16_t tolerance_ticks, uint32_t timeout_ms, Kinematics_AbortCallback_t abort_callback)
 {
+    //Init
     uint32_t start_time;
     uint16_t current_position_ticks = 0U;
     uint16_t error_ticks = 0U;
@@ -960,6 +1016,7 @@ Servo_Result_t Kinematics_WaitUntilJointReached(uint8_t joint_id,
 
     start_time = HAL_GetTick();
 
+    //While we are not at timeout
     while ((uint32_t)(HAL_GetTick() - start_time) < timeout_ms)
     {
         if (abort_callback != NULL)
@@ -970,12 +1027,14 @@ Servo_Result_t Kinematics_WaitUntilJointReached(uint8_t joint_id,
             }
         }
 
+        //Read current position
         result = Servo_ReadPosition(joint_id, &current_position_ticks);
         if (result != SERVO_RESULT_OK)
         {
             return result;
         }
 
+        //If the error is low enough, exit the loop
         if (current_position_ticks >= target_position_ticks)
         {
             error_ticks = (uint16_t)(current_position_ticks - target_position_ticks);

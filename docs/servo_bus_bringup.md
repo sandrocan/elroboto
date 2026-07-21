@@ -90,14 +90,3 @@ erforderlich.
 5. 12 V zuletzt einschalten.
 6. B1 einmal druecken und die gefundene ID dokumentieren.
 7. Nach dem Test 12 V wieder ausschalten.
-
-## Naechste Schritte
-
-1. Die restlichen Servos einzeln pingen und ID sowie Gelenkzuordnung erfassen.
-2. Read-Befehle fuer Position, Spannung und Temperatur implementieren.
-3. Transport auf Interrupt oder DMA umstellen und Timeouts als Zustandslogik
-   behandeln.
-4. Erst danach zentrale Limits, Kalibrierwerte und sichere Schreibbefehle
-   planen.
-5. Vor dem ersten Bewegungsbefehl mechanische Limits, Drehrichtung und eine
-   physische Abschaltmoeglichkeit festlegen.

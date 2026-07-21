@@ -291,7 +291,7 @@ void App_Process(uint32_t now_ms)
 
     (void)app_log_control_telemetry;
 
-
+#if 0
     result = Kinematics_MoveEndEffectorToPositionControlled(
         &target_position,
         APP_MOVEMENT_SPEED,
@@ -303,8 +303,8 @@ void App_Process(uint32_t now_ms)
         app_log_control_telemetry
     );
 
+#endif
 
-#if 0
 
     result = Kinematics_MoveEndEffectorToPositionResolvedRate(
         &target_position,
@@ -316,7 +316,6 @@ void App_Process(uint32_t now_ms)
         app_log_resolved_rate_telemetry
     );
 
-#endif
 
 #if 0
     result = Kinematics_MoveEndEffectorToPositionOneShotAndCheck(

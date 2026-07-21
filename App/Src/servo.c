@@ -17,6 +17,9 @@
 /* Private defines                                                            */
 /* -------------------------------------------------------------------------- */
 
+#define SERVO_HEADER_1                       0xFFU
+#define SERVO_HEADER_2                       0xFFU
+
 #define SERVO_INSTRUCTION_READ              0x02U
 
 #define SERVO_REGISTER_PRESENT_POSITION     0x38U

@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 /** Initialize the application state after all required hardware is ready. */
-void App_Init(UART_HandleTypeDef *servo_uart);
+void App_Init(UART_HandleTypeDef *servo_uart, UART_HandleTypeDef *cell_uart);
 
 /** Run one non-blocking application cycle. */
 void App_Process(uint32_t now_ms);

@@ -9,6 +9,18 @@
 #define BUTTON_DEBOUNCE_MS      50U
 #define HOME_CHECK_TOLERANCE_TICKS 50U
 
+/*
+ * Bring-up mode for the e-skin UART connection. While enabled,
+ * neither servo initialization nor any movement/unlock command is executed.
+ */
+#define APP_SKIN_TEST_ONLY              0U
+#define APP_SKIN_LOG_PERIOD_MS        250U
+#define APP_SKIN_STOP_THRESHOLD       0.050f
+#define APP_SKIN_CLEAR_THRESHOLD      0.020f
+#define APP_SKIN_CLEAR_STABLE_MS       500U
+#define APP_SKIN_STARTUP_TIMEOUT_MS   2000U
+#define APP_SKIN_DATA_TIMEOUT_MS      1000U
+
 #define APP_MOVEMENT_SPEED              300U
 #define APP_MOVEMENT_ACCELERATION       50U
 #define APP_CONTROL_TOLERANCE_TICKS     10U
@@ -21,6 +33,7 @@ typedef enum
   APP_STATE_IDLE,
   APP_STATE_UNLOCKING,
   APP_STATE_HOMING,
+  APP_STATE_PAUSED_SKIN,
   APP_STATE_FAULT
 } App_State;
 
@@ -29,6 +42,9 @@ static volatile uint8_t button_event_pending;
 static volatile uint32_t last_button_event_ms;
 static App_State app_state;
 static volatile uint8_t app_motion_enabled = 1U;
+static volatile float skin_distance = 0.0f;
+static uint8_t app_skin_pause_active;
+static uint32_t app_skin_clear_since_ms;
 
 //static uint8_t app_benchmark_done = 0U;
 
@@ -39,6 +55,11 @@ static Servo_Result_t app_unlock_all_joints(void);
 static uint8_t app_motion_abort_requested(void);
 static void app_log_control_telemetry(const Kinematics_ControlTelemetry_t *telemetry);
 static void app_log_resolved_rate_telemetry(const Kinematics_ResolvedRateTelemetry_t *telemetry);
+static uint8_t app_wait_for_skin_sample(uint32_t timeout_ms);
+static void app_pause_for_skin(uint32_t now_ms);
+static void app_update_skin_pause(uint32_t now_ms);
+static void app_latch_skin_fault(const char *reason, uint32_t now_ms);
+static Servo_Result_t app_hold_active_joints(void);
 
 
 
@@ -67,9 +88,9 @@ static void app_log_resolved_rate_telemetry(const Kinematics_ResolvedRateTelemet
 
 
 
-void App_Init(UART_HandleTypeDef *servo_uart)
+void App_Init(UART_HandleTypeDef *servo_uart, UART_HandleTypeDef *cell_uart)
 {
-    //Init
+    HAL_StatusTypeDef cell_rx_status;
     Servo_Result_t result;
     uint16_t target_raw[KINEMATICS_ACTIVE_JOINT_COUNT];
 
@@ -78,13 +99,57 @@ void App_Init(UART_HandleTypeDef *servo_uart)
     button_event_pending = 0U;
     app_state = APP_STATE_INIT;
     app_motion_enabled = 1U;
+    app_skin_pause_active = 0U;
+    app_skin_clear_since_ms = 0U;
 
     UartServo_AttachHandle(servo_uart);
-    Servo_Init();
+    UartCell_AttachHandle(cell_uart);
+
+    cell_rx_status = UartCell_StartReceiveIT(&skin_distance);
+    if (cell_rx_status != HAL_OK)
+    {
+        app_motion_enabled = 0U;
+        printf("UART4 e-skin receive start failed: status=%d\r\n",
+               (int)cell_rx_status);
+        app_set_state(APP_STATE_FAULT);
+        return;
+    }
 
     printf("\r\nelroboto booted\r\n");
 
-    //Initial position
+    if (APP_SKIN_TEST_ONLY != 0U)
+    {
+        app_motion_enabled = 0U;
+        printf("E-skin test mode active: all servo commands disabled\r\n");
+        app_set_state(APP_STATE_IDLE);
+        return;
+    }
+
+    Servo_Init();
+
+    if (app_wait_for_skin_sample(APP_SKIN_STARTUP_TIMEOUT_MS) == 0U)
+    {
+        app_motion_enabled = 0U;
+        printf("E-skin startup failed: no valid packet within %lu ms\r\n",
+               (unsigned long)APP_SKIN_STARTUP_TIMEOUT_MS);
+        app_set_state(APP_STATE_FAULT);
+        return;
+    }
+
+    if (skin_distance >= APP_SKIN_STOP_THRESHOLD)
+    {
+        app_motion_enabled = 0U;
+        printf("E-skin blocks startup: value=%.3f threshold=%.3f\r\n",
+               (float)skin_distance,
+               (double)APP_SKIN_STOP_THRESHOLD);
+        app_set_state(APP_STATE_FAULT);
+        return;
+    }
+
+    printf("E-skin ready: value=%.3f stop_threshold=%.3f\r\n",
+           (float)skin_distance,
+           (double)APP_SKIN_STOP_THRESHOLD);
+
     target_raw[0] = 2047U;   /* joint 1 */
     target_raw[1] = 1208U;   /* joint 2 */
     target_raw[2] = 2548U;   /* joint 3 */
@@ -92,10 +157,20 @@ void App_Init(UART_HandleTypeDef *servo_uart)
 
     printf("Moving to app start position\r\n");
 
-    //Move joints to the start position
     for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
     {
         uint8_t joint_id = (uint8_t)(i + 1U);
+
+        if (app_motion_abort_requested() != 0U)
+        {
+            printf("Start move aborted before joint=%u\r\n",
+                   (unsigned int)joint_id);
+            if (app_state != APP_STATE_FAULT)
+            {
+                app_set_state(APP_STATE_FAULT);
+            }
+            return;
+        }
 
         result = Servo_WritePosition(
             joint_id,
@@ -119,7 +194,6 @@ void App_Init(UART_HandleTypeDef *servo_uart)
 
     HAL_Delay(300U);
 
-    //Keep polling the motion command until all joints are within tolerance
     for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
     {
         uint8_t joint_id = (uint8_t)(i + 1U);
@@ -138,7 +212,10 @@ void App_Init(UART_HandleTypeDef *servo_uart)
                    (unsigned int)joint_id,
                    Servo_ResultToString(result));
 
-            app_set_state(APP_STATE_FAULT);
+            if (app_state != APP_STATE_FAULT)
+            {
+                app_set_state(APP_STATE_FAULT);
+            }
             return;
         }
 
@@ -152,7 +229,32 @@ void App_Init(UART_HandleTypeDef *servo_uart)
 
 void App_Process(uint32_t now_ms)
 {
-    //Init
+    if (APP_SKIN_TEST_ONLY != 0U)
+    {
+        UartCell_Process();
+
+        if ((uint32_t)(now_ms - last_status_log_ms) >= APP_SKIN_LOG_PERIOD_MS)
+        {
+            UartCell_Diagnostics_t diagnostics;
+
+            last_status_log_ms = now_ms;
+            UartCell_GetDiagnostics(&diagnostics);
+
+            printf("skin=%.3f rx=%lu valid=%lu invalid=%lu "
+                   "uart_err=%lu last_err=0x%08lx rearm_fail=%lu last=0x%02x\r\n",
+                   (float)skin_distance,
+                   (unsigned long)diagnostics.received_byte_count,
+                   (unsigned long)diagnostics.valid_frame_count,
+                   (unsigned long)diagnostics.invalid_frame_count,
+                   (unsigned long)diagnostics.uart_error_count,
+                   (unsigned long)diagnostics.last_uart_error,
+                   (unsigned long)diagnostics.receive_restart_failure_count,
+                   (unsigned int)diagnostics.last_received_byte);
+        }
+
+        return;
+    }
+
     static uint8_t tcp_start_saved = 0U;
     static uint8_t step_index = 0U;
     static Kinematics_Position_t tcp_start_position;
@@ -163,17 +265,18 @@ void App_Process(uint32_t now_ms)
     Kinematics_IkConfig_t ik_config;
     float square_radius_m;
 
-    app_process_button(now_ms);
+    if (app_motion_abort_requested() != 0U)
+    {
+        return;
+    }
 
     if (app_state != APP_STATE_IDLE || app_motion_enabled == 0U)
     {
         return;
     }
 
-    //Determine the square radius
     square_radius_m = APP_SQUARE_RADIUS_CM / 100.0f;
 
-    //Configure the IK Solver
     Kinematics_GetDefaultIkConfig(&ik_config);
     ik_config.position_tolerance_m = 0.001f;
     ik_config.max_iterations = 200U;
@@ -181,7 +284,6 @@ void App_Process(uint32_t now_ms)
     ik_config.finite_difference_step_deg = 0.5f;
     ik_config.damping = 0.02f;
 
-    //Compute cartesian coordinates for TCP (once)
     if (tcp_start_saved == 0U)
     {
         float start_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT];
@@ -254,7 +356,6 @@ void App_Process(uint32_t now_ms)
         tcp_start_saved = 1U;
     }
 
-    //Set the start position as current before changing it according to the step
     target_position = tcp_start_position;
 
     if (step_index == 0U)
@@ -354,6 +455,23 @@ void App_Process(uint32_t now_ms)
 
     if (result != SERVO_RESULT_OK)
     {
+        if (result == SERVO_RESULT_ABORTED)
+        {
+            if (app_skin_pause_active != 0U)
+            {
+                printf("Square TCP move paused by e-skin: step=%u\r\n",
+                       (unsigned int)step_index);
+            }
+            else
+            {
+                printf("Square TCP move aborted: step=%u state=%s\r\n",
+                       (unsigned int)step_index,
+                       app_state_to_string(app_state));
+            }
+
+            return;
+        }
+
         printf("Square TCP move failed: step=%u result=%s\r\n",
                (unsigned int)step_index,
                Servo_ResultToString(result));
@@ -362,7 +480,6 @@ void App_Process(uint32_t now_ms)
         return;
     }
 
-    //Rectangle has its 4 corners as steps
     step_index++;
     if (step_index >= 4U)
     {
@@ -371,10 +488,7 @@ void App_Process(uint32_t now_ms)
 
     HAL_Delay(50U);
 
-    //If the button is pressed, interrupt and unlock all joints instantly
-    app_process_button(HAL_GetTick());
-
-    if (app_motion_enabled == 0U)
+    if (app_motion_abort_requested() != 0U)
     {
         return;
     }
@@ -394,7 +508,6 @@ static void app_set_state(App_State next_state)
 
 static const char *app_state_to_string(App_State state)
 {
-    //Print out the app state in UART for debugging
   switch (state)
   {
     case APP_STATE_INIT:
@@ -412,6 +525,9 @@ static const char *app_state_to_string(App_State state)
     case APP_STATE_HOMING:
       return "HOMING";
 
+    case APP_STATE_PAUSED_SKIN:
+      return "PAUSED_SKIN";
+
     case APP_STATE_FAULT:
       return "FAULT";
 
@@ -422,10 +538,8 @@ static const char *app_state_to_string(App_State state)
 
 static void app_process_button(uint32_t now_ms)
 {
-    //Init
     Servo_Result_t result;
 
-    
     if (button_event_pending == 0U)
     {
         return;
@@ -440,12 +554,12 @@ static void app_process_button(uint32_t now_ms)
 
     last_button_event_ms = now_ms;
 
-    //Disable all motion of the robot
     app_motion_enabled = 0U;
+    app_skin_pause_active = 0U;
+    app_skin_clear_since_ms = 0U;
 
     printf("B1 pressed: motion disabled, unlocking all joints\r\n");
 
-    //Unlock all joints
     result = app_unlock_all_joints();
 
     if (result != SERVO_RESULT_OK)
@@ -458,6 +572,7 @@ static void app_process_button(uint32_t now_ms)
     }
 
     printf("B1 unlock done\r\n");
+    app_set_state(APP_STATE_FAULT);
 }
 
 static Servo_Result_t app_unlock_all_joints(void)
@@ -505,15 +620,241 @@ static Servo_Result_t app_unlock_all_joints(void)
 
 static uint8_t app_motion_abort_requested(void)
 {
-    app_process_button(HAL_GetTick());
+    uint32_t now_ms;
+    UartCell_Diagnostics_t diagnostics;
 
-    //Set the abort flag for the kinematics function
+    UartCell_Process();
+    now_ms = HAL_GetTick();
+    app_process_button(now_ms);
+
+    if (app_skin_pause_active != 0U)
+    {
+        app_update_skin_pause(now_ms);
+    }
+
+    if (app_motion_enabled != 0U)
+    {
+        UartCell_GetDiagnostics(&diagnostics);
+
+        if ((diagnostics.valid_frame_count == 0U) ||
+            ((uint32_t)(now_ms - diagnostics.last_valid_frame_ms) >
+             APP_SKIN_DATA_TIMEOUT_MS))
+        {
+            app_latch_skin_fault("sensor timeout", now_ms);
+        }
+        else if (skin_distance >= APP_SKIN_STOP_THRESHOLD)
+        {
+            if (app_state == APP_STATE_IDLE)
+            {
+                app_pause_for_skin(now_ms);
+            }
+            else
+            {
+                app_latch_skin_fault("proximity during startup", now_ms);
+            }
+        }
+    }
+
     if (app_motion_enabled == 0U)
     {
         return 1U;
     }
 
     return 0U;
+}
+
+static uint8_t app_wait_for_skin_sample(uint32_t timeout_ms)
+{
+    uint32_t start_ms = HAL_GetTick();
+    UartCell_Diagnostics_t diagnostics;
+
+    do
+    {
+        UartCell_Process();
+        UartCell_GetDiagnostics(&diagnostics);
+        if (diagnostics.valid_frame_count > 0U)
+        {
+            return 1U;
+        }
+
+        /* Bounded startup wait; no servo command has been issued yet. */
+        HAL_Delay(10U);
+    }
+    while ((uint32_t)(HAL_GetTick() - start_ms) < timeout_ms);
+
+    return 0U;
+}
+
+static void app_pause_for_skin(uint32_t now_ms)
+{
+    Servo_Result_t hold_result;
+
+    if (app_skin_pause_active != 0U)
+    {
+        return;
+    }
+
+    app_skin_pause_active = 1U;
+    app_skin_clear_since_ms = 0U;
+    app_motion_enabled = 0U;
+
+    printf("E-skin pause: value=%.3f stop_threshold=%.3f time=%lu ms\r\n",
+           (float)skin_distance,
+           (double)APP_SKIN_STOP_THRESHOLD,
+           (unsigned long)now_ms);
+
+    /*
+     * Commanding each active joint to its measured position decelerates and
+     * holds it without deliberately removing torque from the loaded arm.
+     * This remains a software stop, not a certified emergency stop.
+     */
+    hold_result = app_hold_active_joints();
+    printf("E-skin hold result: %s\r\n", Servo_ResultToString(hold_result));
+
+    if (hold_result == SERVO_RESULT_OK)
+    {
+        app_set_state(APP_STATE_PAUSED_SKIN);
+    }
+    else
+    {
+        app_skin_pause_active = 0U;
+        app_set_state(APP_STATE_FAULT);
+    }
+}
+
+static void app_update_skin_pause(uint32_t now_ms)
+{
+    UartCell_Diagnostics_t diagnostics;
+    uint32_t clear_elapsed_ms = 0U;
+
+    UartCell_GetDiagnostics(&diagnostics);
+
+    if ((diagnostics.valid_frame_count == 0U) ||
+        ((uint32_t)(now_ms - diagnostics.last_valid_frame_ms) >
+         APP_SKIN_DATA_TIMEOUT_MS))
+    {
+        app_latch_skin_fault("sensor timeout while paused", now_ms);
+        return;
+    }
+
+    if (app_skin_clear_since_ms != 0U)
+    {
+        clear_elapsed_ms = (uint32_t)(now_ms - app_skin_clear_since_ms);
+    }
+
+    if ((uint32_t)(now_ms - last_status_log_ms) >= APP_SKIN_LOG_PERIOD_MS)
+    {
+        last_status_log_ms = now_ms;
+        printf("E-skin paused: value=%.3f clear_threshold=%.3f clear_ms=%lu\r\n",
+               (float)skin_distance,
+               (double)APP_SKIN_CLEAR_THRESHOLD,
+               (unsigned long)clear_elapsed_ms);
+    }
+
+    if (skin_distance <= APP_SKIN_CLEAR_THRESHOLD)
+    {
+        if (app_skin_clear_since_ms == 0U)
+        {
+            app_skin_clear_since_ms = now_ms;
+            printf("E-skin clear candidate: value=%.3f\r\n",
+                   (float)skin_distance);
+        }
+        else if ((uint32_t)(now_ms - app_skin_clear_since_ms) >=
+                 APP_SKIN_CLEAR_STABLE_MS)
+        {
+            app_skin_pause_active = 0U;
+            app_skin_clear_since_ms = 0U;
+            app_motion_enabled = 1U;
+
+            printf("E-skin clear: value=%.3f stable_ms=%lu; resuming\r\n",
+                   (float)skin_distance,
+                   (unsigned long)APP_SKIN_CLEAR_STABLE_MS);
+            app_set_state(APP_STATE_IDLE);
+        }
+    }
+    else
+    {
+        app_skin_clear_since_ms = 0U;
+    }
+}
+
+static void app_latch_skin_fault(const char *reason, uint32_t now_ms)
+{
+    Servo_Result_t hold_result = SERVO_RESULT_OK;
+    UartCell_Diagnostics_t diagnostics;
+    uint32_t last_valid_age_ms;
+
+    if (app_state == APP_STATE_FAULT)
+    {
+        return;
+    }
+
+    app_motion_enabled = 0U;
+    UartCell_GetDiagnostics(&diagnostics);
+    last_valid_age_ms = (diagnostics.valid_frame_count == 0U)
+                      ? 0U
+                      : (uint32_t)(now_ms - diagnostics.last_valid_frame_ms);
+
+    printf("E-skin fault latched: reason=%s value=%.3f time=%lu ms\r\n",
+           reason,
+           (float)skin_distance,
+           (unsigned long)now_ms);
+    printf("E-skin UART: rx=%lu valid=%lu invalid=%lu uart_err=%lu "
+           "last_err=0x%08lx rearm_fail=%lu last=0x%02x "
+           "last_valid_age_ms=%lu\r\n",
+           (unsigned long)diagnostics.received_byte_count,
+           (unsigned long)diagnostics.valid_frame_count,
+           (unsigned long)diagnostics.invalid_frame_count,
+           (unsigned long)diagnostics.uart_error_count,
+           (unsigned long)diagnostics.last_uart_error,
+           (unsigned long)diagnostics.receive_restart_failure_count,
+           (unsigned int)diagnostics.last_received_byte,
+           (unsigned long)last_valid_age_ms);
+
+    if (app_skin_pause_active == 0U)
+    {
+        hold_result = app_hold_active_joints();
+        printf("E-skin fault hold result: %s\r\n",
+               Servo_ResultToString(hold_result));
+    }
+
+    app_skin_pause_active = 0U;
+    app_skin_clear_since_ms = 0U;
+    app_set_state(APP_STATE_FAULT);
+}
+
+static Servo_Result_t app_hold_active_joints(void)
+{
+    Servo_Result_t first_error = SERVO_RESULT_OK;
+
+    for (uint8_t i = 0U; i < KINEMATICS_ACTIVE_JOINT_COUNT; i++)
+    {
+        const uint8_t joint_id = (uint8_t)(i + 1U);
+        uint16_t current_position_ticks = 0U;
+        Servo_Result_t result = Servo_ReadPosition(joint_id,
+                                                   &current_position_ticks);
+
+        if (result == SERVO_RESULT_OK)
+        {
+            result = Servo_WritePosition(joint_id,
+                                         current_position_ticks,
+                                         APP_MOVEMENT_SPEED,
+                                         APP_MOVEMENT_ACCELERATION);
+        }
+
+        printf("E-skin hold joint=%u position=%u result=%s\r\n",
+               (unsigned int)joint_id,
+               (unsigned int)current_position_ticks,
+               Servo_ResultToString(result));
+
+        if ((result != SERVO_RESULT_OK) &&
+            (first_error == SERVO_RESULT_OK))
+        {
+            first_error = result;
+        }
+    }
+
+    return first_error;
 }
 
 static void app_log_control_telemetry(const Kinematics_ControlTelemetry_t *telemetry)

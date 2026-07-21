@@ -11,6 +11,42 @@
 USART1 ist mit dem Virtual COM Port des ST-LINK verbunden. Die Firmware nutzt
 diese Schnittstelle mit 115200 Baud fuer `printf()`-Diagnosen.
 
+## E-Skin-UART
+
+Der ESP32-C6 sendet den maximalen E-Skin-Naeherungswert als ASCII-Zeile an
+UART4. Die am 21.07.2026 auf Hardware validierte Verbindung ist:
+
+| Funktion | ESP32-C6 | STM32 / Nucleo |
+|---|---|---|
+| Sensordaten | TX / GPIO16 | PC11 / UART4_RX / CN7 Pin 2 |
+| Bezugspotential | GND | GND, zum Beispiel am POWER-Header |
+
+UART4 verwendet 115200 Baud, 8 Datenbits, keine Paritaet, ein Stopbit und kein
+Hardware Flow Control. Akzeptiert werden Zeilen wie `0.123\n` und
+`0.123\r\n`. Im Hardwaretest wurden fortlaufend gueltige Pakete ohne UART-,
+Parser- oder Neustartfehler empfangen. Der unbelastete Sensorwert lag bei etwa
+`0.011`; bei Annaeherung stieg er bis ueber `0.8`.
+
+Der UART4-Interrupt puffert nur die empfangene ASCII-Zeile. Die Umwandlung in
+`float` erfolgt ausserhalb der ISR im normalen Kontrollpfad. Dadurch kann die
+E-Skin-Verarbeitung die dicht aufeinanderfolgenden Servoantworten bei 1 Mbit/s
+nicht durch eine rechenintensive `strtof()`-Auswertung im Interrupt
+unterbrechen.
+
+Die Demo verwendet vorlaeufig `0.050` als Stoppschwellwert. Beim Stopp liest die
+Firmware die Positionen der vier aktiven Gelenke und schreibt sie als
+Halteziele zurueck. Sinkt der Messwert anschliessend fuer mindestens 500 ms auf
+hoechstens `0.020`, wird derselbe Demoversuch automatisch neu berechnet und
+fortgesetzt. Die Hysterese verhindert ein direktes Ein-/Ausschalten im
+Grenzbereich.
+
+Vor der ersten Bewegung muss innerhalb von zwei Sekunden ein gueltiges Paket
+ankommen. Eine Datenluecke von mehr als einer Sekunde fuehrt zum verriegelten
+Fehler und wird nicht automatisch freigegeben. Auch ein Skin-Stopp waehrend der
+Startpositionierung bleibt verriegelt. Diese Reaktionen sind nur nicht
+zertifizierte Software-Stopps und weder ein Not-Halt noch eine Garantie fuer
+mechanische Sicherheit.
+
 ## Servo-Bus
 
 Der Waveshare Bus Servo Adapter (A), Modell WSH-SBS-01, wird ueber LPUART1
@@ -34,6 +70,8 @@ UART-Konfiguration:
 - 1 Stopbit
 - kein Hardware Flow Control
 - HSI16 als LPUART1-Taktquelle
+- RX-FIFO aktiviert, um kurze Unterbrechungen durch andere Interrupts zu
+  ueberbruecken
 
 Die Servoversorgung erfolgt separat mit 12 V. Die 12-V-Leitung darf nicht mit
 einem Versorgungspin des Nucleo verbunden werden. Nucleo und Adapter benoetigen

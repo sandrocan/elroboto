@@ -24,9 +24,21 @@ extern "C" {
 #define UART_DEBUG_BAUDRATE    115200U
 #define UART_SERVO_BAUDRATE   1000000U
 
-HAL_StatusTypeDef UartCell_StartReceiveIT(volatile float *value);
+typedef struct
+{
+    uint32_t received_byte_count;
+    uint32_t valid_frame_count;
+    uint32_t invalid_frame_count;
+    uint32_t uart_error_count;
+    uint32_t receive_restart_failure_count;
+    uint32_t last_uart_error;
+    uint32_t last_valid_frame_ms;
+    uint8_t last_received_byte;
+} UartCell_Diagnostics_t;
+
 void UartCell_AttachHandle(UART_HandleTypeDef *huart);
 HAL_StatusTypeDef UartCell_StartReceiveIT(volatile float *value);
+void UartCell_GetDiagnostics(UartCell_Diagnostics_t *diagnostics);
 
 /**
  * @brief Attaches the CubeMX-created UART handle used for the servo bus.

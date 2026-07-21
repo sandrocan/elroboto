@@ -13,6 +13,7 @@
 
 #define APP_MOVEMENT_SPEED              300U
 #define APP_MOVEMENT_ACCELERATION       50U
+#define APP_CONTROL_TOLERANCE_TICKS     10U
 #define APP_SQUARE_RADIUS_CM            12.0f
 
 typedef enum
@@ -39,6 +40,8 @@ static const char *app_state_to_string(App_State state);
 static void app_process_button(uint32_t now_ms);
 static Servo_Result_t app_unlock_all_joints(void);
 static uint8_t app_motion_abort_requested(void);
+static void app_log_control_telemetry(const Kinematics_ControlTelemetry_t *telemetry);
+static void app_log_resolved_rate_telemetry(const Kinematics_ResolvedRateTelemetry_t *telemetry);
 
 
 
@@ -177,7 +180,7 @@ void App_Process(uint32_t now_ms)
     square_radius_m = APP_SQUARE_RADIUS_CM / 100.0f;
 
     Kinematics_GetDefaultIkConfig(&ik_config);
-    ik_config.position_tolerance_m = 0.005f;
+    ik_config.position_tolerance_m = 0.001f;
     ik_config.max_iterations = 200U;
     ik_config.max_step_deg = 5.0f;
     ik_config.finite_difference_step_deg = 0.5f;
@@ -298,21 +301,58 @@ void App_Process(uint32_t now_ms)
                target_position.z);
     }
 
-    result = Kinematics_MoveEndEffectorToPositionAndWait(
+    (void)app_log_control_telemetry;
+
+#if 0
+    result = Kinematics_MoveEndEffectorToPositionControlled(
         &target_position,
         APP_MOVEMENT_SPEED,
         APP_MOVEMENT_ACCELERATION,
-		50U,
-		20000U,
+        APP_CONTROL_TOLERANCE_TICKS,
+        20000U,
         &ik_config,
-		app_motion_abort_requested
+        app_motion_abort_requested,
+        app_log_control_telemetry
     );
 
-    if (skin_distance > APP_COLLISION_THRESHOLD)
-    {
-        app_motion_enabled = 0U;
-    }
+#endif
 
+
+    result = Kinematics_MoveEndEffectorToPositionResolvedRate(
+        &target_position,
+        APP_MOVEMENT_SPEED,
+        APP_MOVEMENT_ACCELERATION,
+        20000U,
+        &ik_config,
+        app_motion_abort_requested,
+        app_log_resolved_rate_telemetry
+    );
+
+
+#if 0
+    result = Kinematics_MoveEndEffectorToPositionOneShotAndCheck(
+        &target_position,
+        APP_MOVEMENT_SPEED,
+        APP_MOVEMENT_ACCELERATION,
+        20000U,
+        &ik_config,
+        app_motion_abort_requested,
+        app_log_resolved_rate_telemetry
+    );
+#endif
+
+#if 0
+    result = Kinematics_MoveEndEffectorToPositionOneShotThenResolvedRate(
+        &target_position,
+        APP_MOVEMENT_SPEED,
+        APP_MOVEMENT_ACCELERATION,
+        20000U,
+        &ik_config,
+        app_motion_abort_requested,
+        app_log_resolved_rate_telemetry
+    );
+
+#endif
     app_process_button(HAL_GetTick());
 
     if (result != SERVO_RESULT_OK)
@@ -474,4 +514,60 @@ static uint8_t app_motion_abort_requested(void)
     }
 
     return 0U;
+}
+
+static void app_log_control_telemetry(const Kinematics_ControlTelemetry_t *telemetry)
+{
+    if (telemetry == NULL)
+    {
+        return;
+    }
+
+    printf(
+        "CTRL cycle=%lu dt_ms=%.1f joint=%u current=%u target=%u "
+        "error=%ld pid_step=%.2f applied=%ld command=%u reached=%u "
+        "sent=%u joint_limit=%u\r\n",
+        (unsigned long)telemetry->cycle_index,
+        (double)(telemetry->dt_s * 1000.0f),
+        (unsigned int)telemetry->joint_id,
+        (unsigned int)telemetry->current_position_ticks,
+        (unsigned int)telemetry->target_position_ticks,
+        (long)telemetry->error_ticks,
+        (double)telemetry->controller_output_ticks,
+        (long)telemetry->applied_correction_ticks,
+        (unsigned int)telemetry->commanded_position_ticks,
+        (unsigned int)telemetry->within_tolerance,
+        (unsigned int)telemetry->command_sent,
+        (unsigned int)telemetry->joint_limit_clamped
+    );
+}
+
+static void app_log_resolved_rate_telemetry(const Kinematics_ResolvedRateTelemetry_t *telemetry)
+{
+    if (telemetry == NULL)
+    {
+        return;
+    }
+
+    printf(
+        "CART_CTRL cycle=%lu current=(%.4f,%.4f,%.4f) "
+        "error_mm=(%.2f,%.2f,%.2f) norm_mm=%.2f "
+        "measured=(%u,%u,%u,%u) command=(%u,%u,%u,%u)\r\n",
+        (unsigned long)telemetry->cycle_index,
+        (double)telemetry->current_position_m.x,
+        (double)telemetry->current_position_m.y,
+        (double)telemetry->current_position_m.z,
+        (double)(telemetry->error_m.x * 1000.0f),
+        (double)(telemetry->error_m.y * 1000.0f),
+        (double)(telemetry->error_m.z * 1000.0f),
+        (double)(telemetry->error_norm_m * 1000.0f),
+        (unsigned int)telemetry->measured_position_ticks[0],
+        (unsigned int)telemetry->measured_position_ticks[1],
+        (unsigned int)telemetry->measured_position_ticks[2],
+        (unsigned int)telemetry->measured_position_ticks[3],
+        (unsigned int)telemetry->commanded_position_ticks[0],
+        (unsigned int)telemetry->commanded_position_ticks[1],
+        (unsigned int)telemetry->commanded_position_ticks[2],
+        (unsigned int)telemetry->commanded_position_ticks[3]
+    );
 }

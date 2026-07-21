@@ -11,7 +11,7 @@
 
 #define APP_MOVEMENT_SPEED              300U
 #define APP_MOVEMENT_ACCELERATION       50U
-#define APP_CONTROL_TOLERANCE_TICKS     5U
+#define APP_CONTROL_TOLERANCE_TICKS     10U
 #define APP_SQUARE_RADIUS_CM            12.0f
 
 typedef enum
@@ -38,6 +38,7 @@ static void app_process_button(uint32_t now_ms);
 static Servo_Result_t app_unlock_all_joints(void);
 static uint8_t app_motion_abort_requested(void);
 static void app_log_control_telemetry(const Kinematics_ControlTelemetry_t *telemetry);
+static void app_log_resolved_rate_telemetry(const Kinematics_ResolvedRateTelemetry_t *telemetry);
 
 
 
@@ -174,7 +175,7 @@ void App_Process(uint32_t now_ms)
 
     //Configure the IK Solver
     Kinematics_GetDefaultIkConfig(&ik_config);
-    ik_config.position_tolerance_m = 0.005f;
+    ik_config.position_tolerance_m = 0.001f;
     ik_config.max_iterations = 200U;
     ik_config.max_step_deg = 5.0f;
     ik_config.finite_difference_step_deg = 0.5f;
@@ -297,7 +298,9 @@ void App_Process(uint32_t now_ms)
                target_position.z);
     }
 
-    //Move the endeffector to the final tick result of the IK solver
+    (void)app_log_control_telemetry;
+
+#if 0
     result = Kinematics_MoveEndEffectorToPositionControlled(
         &target_position,
         APP_MOVEMENT_SPEED,
@@ -309,7 +312,44 @@ void App_Process(uint32_t now_ms)
         app_log_control_telemetry
     );
 
-    //If the button is pressed, interrupt and unlock all joints instantly
+#endif
+
+
+    result = Kinematics_MoveEndEffectorToPositionResolvedRate(
+        &target_position,
+        APP_MOVEMENT_SPEED,
+        APP_MOVEMENT_ACCELERATION,
+        20000U,
+        &ik_config,
+        app_motion_abort_requested,
+        app_log_resolved_rate_telemetry
+    );
+
+
+#if 0
+    result = Kinematics_MoveEndEffectorToPositionOneShotAndCheck(
+        &target_position,
+        APP_MOVEMENT_SPEED,
+        APP_MOVEMENT_ACCELERATION,
+        20000U,
+        &ik_config,
+        app_motion_abort_requested,
+        app_log_resolved_rate_telemetry
+    );
+#endif
+
+#if 0
+    result = Kinematics_MoveEndEffectorToPositionOneShotThenResolvedRate(
+        &target_position,
+        APP_MOVEMENT_SPEED,
+        APP_MOVEMENT_ACCELERATION,
+        20000U,
+        &ik_config,
+        app_motion_abort_requested,
+        app_log_resolved_rate_telemetry
+    );
+
+#endif
     app_process_button(HAL_GetTick());
 
     if (result != SERVO_RESULT_OK)
@@ -499,5 +539,35 @@ static void app_log_control_telemetry(const Kinematics_ControlTelemetry_t *telem
         (unsigned int)telemetry->within_tolerance,
         (unsigned int)telemetry->command_sent,
         (unsigned int)telemetry->joint_limit_clamped
+    );
+}
+
+static void app_log_resolved_rate_telemetry(const Kinematics_ResolvedRateTelemetry_t *telemetry)
+{
+    if (telemetry == NULL)
+    {
+        return;
+    }
+
+    printf(
+        "CART_CTRL cycle=%lu current=(%.4f,%.4f,%.4f) "
+        "error_mm=(%.2f,%.2f,%.2f) norm_mm=%.2f "
+        "measured=(%u,%u,%u,%u) command=(%u,%u,%u,%u)\r\n",
+        (unsigned long)telemetry->cycle_index,
+        (double)telemetry->current_position_m.x,
+        (double)telemetry->current_position_m.y,
+        (double)telemetry->current_position_m.z,
+        (double)(telemetry->error_m.x * 1000.0f),
+        (double)(telemetry->error_m.y * 1000.0f),
+        (double)(telemetry->error_m.z * 1000.0f),
+        (double)(telemetry->error_norm_m * 1000.0f),
+        (unsigned int)telemetry->measured_position_ticks[0],
+        (unsigned int)telemetry->measured_position_ticks[1],
+        (unsigned int)telemetry->measured_position_ticks[2],
+        (unsigned int)telemetry->measured_position_ticks[3],
+        (unsigned int)telemetry->commanded_position_ticks[0],
+        (unsigned int)telemetry->commanded_position_ticks[1],
+        (unsigned int)telemetry->commanded_position_ticks[2],
+        (unsigned int)telemetry->commanded_position_ticks[3]
     );
 }

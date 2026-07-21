@@ -35,6 +35,10 @@
 #define SERVO_TIMEOUT_RX_MS         100U
 
 #define SERVO_INSTRUCTION_WRITE     0x03U
+#define SERVO_INSTRUCTION_SYNC_READ 0x82U
+#define SERVO_INSTRUCTION_SYNC_WRITE 0x83U
+
+#define SERVO_BROADCAST_ID          0xFEU
 
 #define SERVO_REGISTER_TORQUE_ENABLE      0x28U
 
@@ -45,6 +49,15 @@
 
 #define SERVO_REGISTER_ACC          0x29U
 #define SERVO_WRITE_POSITION_SIZE   14U
+#define SERVO_SYNC_WRITE_DATA_SIZE  7U
+#define SERVO_SYNC_WRITE_MAX_JOINTS 6U
+#define SERVO_SYNC_WRITE_PACKET_SIZE(joint_count) \
+    (8U + ((uint16_t)(joint_count) * (SERVO_SYNC_WRITE_DATA_SIZE + 1U)))
+#define SERVO_SYNC_READ_MAX_JOINTS  6U
+#define SERVO_SYNC_READ_PACKET_SIZE(joint_count) \
+    (8U + (uint16_t)(joint_count))
+#define SERVO_SYNC_READ_RESPONSE_SIZE(joint_count) \
+    ((uint16_t)(joint_count) * SERVO_READ_POSITION_RESPONSE_LENGTH)
 
 #define SERVO_HOME_SPEED              200U
 #define SERVO_HOME_ACCELERATION       50U
@@ -551,6 +564,146 @@ Servo_Result_t Servo_ReadPosition(uint8_t id, uint16_t *position)
     return result;
 }
 
+Servo_Result_t Servo_ReadPositionRetry(uint8_t id, uint16_t *position)
+{
+    Servo_Result_t result;
+
+    for (uint8_t attempt = 0U; attempt < 3U; attempt++)
+    {
+        result = Servo_ReadPosition(id, position);
+
+        if (result == SERVO_RESULT_OK)
+        {
+            return SERVO_RESULT_OK;
+        }
+
+        HAL_Delay(20U);
+    }
+
+    return result;
+}
+
+Servo_Result_t Servo_ReadPositionsSync(
+    const uint8_t ids[],
+    uint16_t positions[],
+    uint8_t joint_count)
+{
+    uint8_t packet[SERVO_SYNC_READ_PACKET_SIZE(SERVO_SYNC_READ_MAX_JOINTS)];
+    uint8_t response[SERVO_SYNC_READ_RESPONSE_SIZE(SERVO_SYNC_READ_MAX_JOINTS)];
+    uint16_t packet_size;
+    uint16_t response_size;
+    HAL_StatusTypeDef tx_status;
+    HAL_StatusTypeDef rx_status;
+
+    if ((ids == NULL) || (positions == NULL))
+    {
+        return SERVO_RESULT_NULL_POINTER;
+    }
+
+    if (servo_is_initialized == 0U)
+    {
+        return SERVO_RESULT_NOT_INITIALIZED;
+    }
+
+    if ((joint_count == 0U) ||
+        (joint_count > servo_joint_count) ||
+        (joint_count > SERVO_SYNC_READ_MAX_JOINTS))
+    {
+        return SERVO_RESULT_UNKNOWN_JOINT_ID;
+    }
+
+    for (uint8_t i = 0U; i < joint_count; i++)
+    {
+        if (Servo_FindJointById(ids[i]) == NULL)
+        {
+            return SERVO_RESULT_UNKNOWN_JOINT_ID;
+        }
+
+        for (uint8_t previous = 0U; previous < i; previous++)
+        {
+            if (ids[previous] == ids[i])
+            {
+                return SERVO_RESULT_UNKNOWN_JOINT_ID;
+            }
+        }
+
+        positions[i] = 0U;
+    }
+
+    packet_size = SERVO_SYNC_READ_PACKET_SIZE(joint_count);
+    response_size = SERVO_SYNC_READ_RESPONSE_SIZE(joint_count);
+
+    packet[0] = SERVO_HEADER_1;
+    packet[1] = SERVO_HEADER_2;
+    packet[2] = SERVO_BROADCAST_ID;
+    packet[3] = (uint8_t)(joint_count + 4U);
+    packet[4] = SERVO_INSTRUCTION_SYNC_READ;
+    packet[5] = SERVO_REGISTER_PRESENT_POSITION;
+    packet[6] = 0x02U;
+
+    for (uint8_t i = 0U; i < joint_count; i++)
+    {
+        packet[7U + i] = ids[i];
+    }
+
+    packet[packet_size - 1U] = Servo_CalculateChecksum(
+        &packet[2],
+        (uint16_t)(packet_size - 3U)
+    );
+
+    UartServo_ClearRxBuffer();
+
+    tx_status = UartServo_SendCommand(packet, packet_size, SERVO_TIMEOUT_TX_MS);
+    if (tx_status != HAL_OK)
+    {
+        return SERVO_RESULT_TX_ERROR;
+    }
+
+    rx_status = UartServo_ReadResponse(response, response_size, SERVO_TIMEOUT_RX_MS);
+    if (rx_status == HAL_TIMEOUT)
+    {
+        return SERVO_RESULT_RX_TIMEOUT;
+    }
+
+    if (rx_status != HAL_OK)
+    {
+        return SERVO_RESULT_RX_ERROR;
+    }
+
+    for (uint8_t i = 0U; i < joint_count; i++)
+    {
+        const uint16_t offset = (uint16_t)i * SERVO_READ_POSITION_RESPONSE_LENGTH;
+        const uint8_t *status = &response[offset];
+        const uint8_t calculated_checksum = Servo_CalculateChecksum(&status[2], 5U);
+
+        if ((status[0] != SERVO_HEADER_1) ||
+            (status[1] != SERVO_HEADER_2))
+        {
+            return SERVO_RESULT_INVALID_HEADER;
+        }
+
+        if (status[2] != ids[i])
+        {
+            return SERVO_RESULT_INVALID_ID;
+        }
+
+        if (status[7] != calculated_checksum)
+        {
+            return SERVO_RESULT_INVALID_CHECKSUM;
+        }
+
+        if (status[4] != 0x00U)
+        {
+            return SERVO_RESULT_SERVO_ERROR;
+        }
+
+        positions[i] = (uint16_t)status[5] |
+                       ((uint16_t)status[6] << 8U);
+    }
+
+    return SERVO_RESULT_OK;
+}
+
 Servo_Result_t Servo_WritePosition(uint8_t id, uint16_t position, uint16_t speed, uint8_t acceleration)
 {
     const Servo_JointConfig_t *joint = NULL;
@@ -585,6 +738,106 @@ Servo_Result_t Servo_WritePosition(uint8_t id, uint16_t position, uint16_t speed
         speed,
         acceleration
     );
+}
+
+Servo_Result_t Servo_WritePositionsSync(
+    const uint8_t ids[],
+    const uint16_t positions[],
+    uint8_t joint_count,
+    uint16_t speed,
+    uint8_t acceleration)
+{
+    uint8_t packet[SERVO_SYNC_WRITE_PACKET_SIZE(SERVO_SYNC_WRITE_MAX_JOINTS)];
+    uint16_t packet_index;
+    uint16_t packet_size;
+    HAL_StatusTypeDef tx_status;
+
+    if ((ids == NULL) || (positions == NULL))
+    {
+        return SERVO_RESULT_NULL_POINTER;
+    }
+
+    if (servo_is_initialized == 0U)
+    {
+        return SERVO_RESULT_NOT_INITIALIZED;
+    }
+
+    if ((joint_count == 0U) ||
+        (joint_count > servo_joint_count) ||
+        (joint_count > SERVO_SYNC_WRITE_MAX_JOINTS))
+    {
+        return SERVO_RESULT_UNKNOWN_JOINT_ID;
+    }
+
+    for (uint8_t i = 0U; i < joint_count; i++)
+    {
+        const Servo_JointConfig_t *joint = Servo_FindJointById(ids[i]);
+
+        if (joint == NULL)
+        {
+            return SERVO_RESULT_UNKNOWN_JOINT_ID;
+        }
+
+        if (joint->is_fixed != 0U)
+        {
+            return SERVO_RESULT_JOINT_IS_FIXED;
+        }
+
+        if ((positions[i] < joint->min_position_ticks) ||
+            (positions[i] > joint->max_position_ticks))
+        {
+            return SERVO_RESULT_POSITION_OUT_OF_RANGE;
+        }
+
+        for (uint8_t previous = 0U; previous < i; previous++)
+        {
+            if (ids[previous] == ids[i])
+            {
+                return SERVO_RESULT_UNKNOWN_JOINT_ID;
+            }
+        }
+    }
+
+    packet_size = SERVO_SYNC_WRITE_PACKET_SIZE(joint_count);
+    packet[0] = SERVO_HEADER_1;
+    packet[1] = SERVO_HEADER_2;
+    packet[2] = SERVO_BROADCAST_ID;
+    packet[3] = (uint8_t)(packet_size - 4U);
+    packet[4] = SERVO_INSTRUCTION_SYNC_WRITE;
+    packet[5] = SERVO_REGISTER_ACC;
+    packet[6] = SERVO_SYNC_WRITE_DATA_SIZE;
+    packet_index = 7U;
+
+    for (uint8_t i = 0U; i < joint_count; i++)
+    {
+        packet[packet_index++] = ids[i];
+        packet[packet_index++] = acceleration;
+        packet[packet_index++] = (uint8_t)(positions[i] & 0xFFU);
+        packet[packet_index++] = (uint8_t)((positions[i] >> 8U) & 0xFFU);
+        packet[packet_index++] = 0x00U;
+        packet[packet_index++] = 0x00U;
+        packet[packet_index++] = (uint8_t)(speed & 0xFFU);
+        packet[packet_index++] = (uint8_t)((speed >> 8U) & 0xFFU);
+    }
+
+    packet[packet_index] = Servo_CalculateChecksum(&packet[2], (uint16_t)(packet_index - 2U));
+    packet_index++;
+
+    for (uint8_t i = 0U; i < SERVO_STATUS_PACKET_LENGTH; i++)
+    {
+        servo_last_response[i] = 0U;
+    }
+
+    servo_last_response_length = 0U;
+    UartServo_ClearRxBuffer();
+
+    tx_status = UartServo_SendCommand(packet, packet_index, SERVO_TIMEOUT_TX_MS);
+    if (tx_status != HAL_OK)
+    {
+        return SERVO_RESULT_TX_ERROR;
+    }
+
+    return SERVO_RESULT_OK;
 }
 
 const uint8_t *Servo_GetLastResponse(void)

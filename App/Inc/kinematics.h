@@ -53,6 +53,43 @@ typedef struct
 typedef uint8_t (*Kinematics_AbortCallback_t)(void);
 
 /**
+ * @brief Diagnostic values produced for one joint during one control cycle.
+ */
+typedef struct
+{
+    uint32_t cycle_index;
+    float dt_s;
+    uint8_t joint_id;
+    uint16_t current_position_ticks;
+    uint16_t target_position_ticks;
+    int32_t error_ticks;
+    float controller_output_ticks;
+    int32_t applied_correction_ticks;
+    uint16_t commanded_position_ticks;
+    uint8_t within_tolerance;
+    uint8_t command_sent;
+    uint8_t joint_limit_clamped;
+} Kinematics_ControlTelemetry_t;
+
+/**
+ * @brief Callback type used to report per-joint controller diagnostics.
+ * @param telemetry Controller values for one joint and control cycle.
+ */
+typedef void (*Kinematics_ControlTelemetryCallback_t)(const Kinematics_ControlTelemetry_t *telemetry);
+
+typedef struct
+{
+    uint32_t cycle_index;
+    Kinematics_Position_t current_position_m;
+    Kinematics_Position_t error_m;
+    float error_norm_m;
+    uint16_t measured_position_ticks[KINEMATICS_ACTIVE_JOINT_COUNT];
+    uint16_t commanded_position_ticks[KINEMATICS_ACTIVE_JOINT_COUNT];
+} Kinematics_ResolvedRateTelemetry_t;
+
+typedef void (*Kinematics_ResolvedRateTelemetryCallback_t)(const Kinematics_ResolvedRateTelemetry_t *telemetry);
+
+/**
  * @brief Converts an angle from degrees to radians.
  * @param degrees Angle in degrees.
  * @return Angle in radians.
@@ -140,6 +177,16 @@ void Kinematics_GetDefaultIkConfig(Kinematics_IkConfig_t *config);
 Servo_Result_t Kinematics_InversePositionDeg(const Kinematics_Position_t *target_position, const float seed_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT], const Kinematics_IkConfig_t *config, float result_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT]);
 
 /**
+ * @brief Performs exactly one damped-least-squares inverse-kinematics update.
+ */
+Servo_Result_t Kinematics_InversePositionDegOneStep(
+    const Kinematics_Position_t *target_position,
+    const float current_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT],
+    const Kinematics_IkConfig_t *config,
+    float next_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT]
+);
+
+/**
  * @brief Calculates raw servo targets for a target end-effector XYZ position.
  * @param target_position Pointer to the target XYZ position in meters.
  * @param seed_joint_deg Initial joint angle guess for joints 1 to 4 in degrees.
@@ -170,6 +217,59 @@ Servo_Result_t Kinematics_MoveEndEffectorToPosition(const Kinematics_Position_t 
  * @return Servo-style result code.
  */
 Servo_Result_t Kinematics_MoveEndEffectorToPositionAndWait(const Kinematics_Position_t *target_position, uint16_t speed, uint8_t acceleration, uint16_t tolerance_ticks, uint32_t timeout_ms, const Kinematics_IkConfig_t *config, Kinematics_AbortCallback_t abort_callback);
+
+/**
+ * @brief Sends one full-IK joint target and only observes the resulting TCP error.
+ */
+Servo_Result_t Kinematics_MoveEndEffectorToPositionOneShotAndCheck(
+    const Kinematics_Position_t *target_position,
+    uint16_t speed,
+    uint8_t acceleration,
+    uint32_t timeout_ms,
+    const Kinematics_IkConfig_t *config,
+    Kinematics_AbortCallback_t abort_callback,
+    Kinematics_ResolvedRateTelemetryCallback_t telemetry_callback
+);
+
+/**
+ * @brief Performs one smooth full-IK move, then trims the remaining TCP error.
+ */
+Servo_Result_t Kinematics_MoveEndEffectorToPositionOneShotThenResolvedRate(
+    const Kinematics_Position_t *target_position,
+    uint16_t speed,
+    uint8_t acceleration,
+    uint32_t timeout_ms,
+    const Kinematics_IkConfig_t *config,
+    Kinematics_AbortCallback_t abort_callback,
+    Kinematics_ResolvedRateTelemetryCallback_t telemetry_callback
+);
+
+/**
+ * @brief Moves all active joints using one PID controller per joint.
+ * @param target_position Target Cartesian position in meters.
+ * @param speed Servo movement speed.
+ * @param acceleration Servo movement acceleration.
+ * @param tolerance_ticks Allowed target error in servo ticks.
+ * @param timeout_ms Maximum movement time in milliseconds.
+ * @param config Optional inverse-kinematics configuration.
+ * @param abort_callback Optional callback used to abort the movement.
+ * @param telemetry_callback Optional callback for per-joint controller diagnostics.
+ * @return Servo-style result code.
+ */
+Servo_Result_t Kinematics_MoveEndEffectorToPositionControlled(const Kinematics_Position_t *target_position, uint16_t speed, uint8_t acceleration, uint16_t tolerance_ticks, uint32_t timeout_ms, const Kinematics_IkConfig_t *config, Kinematics_AbortCallback_t abort_callback, Kinematics_ControlTelemetryCallback_t telemetry_callback);
+
+/**
+ * @brief Moves the end effector using one Cartesian feedback step per control cycle.
+ */
+Servo_Result_t Kinematics_MoveEndEffectorToPositionResolvedRate(
+    const Kinematics_Position_t *target_position,
+    uint16_t speed,
+    uint8_t acceleration,
+    uint32_t timeout_ms,
+    const Kinematics_IkConfig_t *config,
+    Kinematics_AbortCallback_t abort_callback,
+    Kinematics_ResolvedRateTelemetryCallback_t telemetry_callback
+);
 
 
 /**

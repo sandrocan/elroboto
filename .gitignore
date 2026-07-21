@@ -16,12 +16,18 @@ CMakeUserPresets.json
 *.swp
 *~
 
-# Keep the shared STM32Cube extension settings versioned
-!.settings/
-
-.vscode/
+# Keep editor metadata local by default. Shared STM32 build/debug files are
+# explicitly included below.
+.vscode/*
 .venv/
-
-.settings/
+.settings/*
 .metadata/
 *.json
+
+!.vscode/
+!.vscode/c_cpp_properties.json
+!.vscode/launch.json
+!.settings/
+!.settings/bundles-lock.store.json
+!.settings/bundles.store.json
+!CMakePresets.json

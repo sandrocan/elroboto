@@ -1,0 +1,139 @@
+\section{Computational Optimization of Embedded Kinematics}
+
+This section evaluates alternative implementations of the operations that dominate the numerical IK runtime. The objective was to reduce processor cycles without introducing unnecessary kinematic error.
+
+\subsection{Motivation}
+
+Numerical inverse kinematics repeatedly evaluates the forward model while calculating both the Cartesian error and the numerical Jacobian. Trigonometric functions and homogeneous-matrix multiplications were therefore selected as the main optimization targets.
+
+\subsection{Trigonometric Implementations}
+
+Three sine and cosine implementations were compared to determine their runtime--accuracy trade-off. The tested methods were the standard mathematics library, CMSIS-DSP fast mathematics, and an interpolated lookup table.
+
+The standard implementation used \texttt{sinf()} and \texttt{cosf()}, while the optimized alternative used the CMSIS-DSP fast-math functions \cite{cmsis_dsp}. An additional implementation approximated the functions using a lookup table with interpolation.
+
+In isolated measurements, CMSIS-DSP reduced the average sine evaluation from 214 to 172 processor cycles and the average cosine evaluation from 215 to 173 cycles. However, the approximation introduced maximum deviations of approximately \(1.5 \times 10^{-5}\). The lookup-table implementation was slower than the standard library and also introduced a larger numerical deviation.
+
+The isolated reduction in trigonometric cycles did not result in a substantial improvement of the complete kinematic calculation. Standard \texttt{sinf()} and \texttt{cosf()} were therefore retained in the final demonstration because their execution time was sufficient and they provided the smallest numerical error.
+
+\subsection{Transformation-Matrix Implementations}
+
+The largest speedup was obtained by exploiting the known structure of homogeneous transformation matrices. This removes redundant arithmetic without changing the mathematical result.
+
+A generic homogeneous transformation is written as
+
+\begin{equation}
+    \mathbf{T} =
+    \begin{bmatrix}
+        \mathbf{R} & \mathbf{p} \\
+        \mathbf{0}^{T} & 1
+    \end{bmatrix},
+    \label{eq:homogeneous_structure}
+\end{equation}
+
+where \(\mathbf{R} \in \mathbb{R}^{3 \times 3}\) is a rotation matrix and \(\mathbf{p} \in \mathbb{R}^{3}\) is a translation vector.
+
+For two transformations
+
+\begin{equation}
+    \mathbf{T}_{A} =
+    \begin{bmatrix}
+        \mathbf{R}_{A} & \mathbf{p}_{A} \\
+        \mathbf{0}^{T} & 1
+    \end{bmatrix},
+    \qquad
+    \mathbf{T}_{B} =
+    \begin{bmatrix}
+        \mathbf{R}_{B} & \mathbf{p}_{B} \\
+        \mathbf{0}^{T} & 1
+    \end{bmatrix},
+    \label{eq:two_homogeneous_transforms}
+\end{equation}
+
+their product can be calculated directly as
+
+\begin{equation}
+    \mathbf{T}_{C} =
+    \mathbf{T}_{A}\mathbf{T}_{B}
+    =
+    \begin{bmatrix}
+        \mathbf{R}_{A}\mathbf{R}_{B}
+        &
+        \mathbf{R}_{A}\mathbf{p}_{B}
+        +
+        \mathbf{p}_{A}
+        \\
+        \mathbf{0}^{T}
+        &
+        1
+    \end{bmatrix}.
+    \label{eq:optimized_homogeneous_product}
+\end{equation}
+
+The optimized implementation therefore calculates only
+
+\begin{align}
+    \mathbf{R}_{C} &=
+    \mathbf{R}_{A}\mathbf{R}_{B},
+    \label{eq:optimized_rotation}
+    \\
+    \mathbf{p}_{C} &=
+    \mathbf{R}_{A}\mathbf{p}_{B}
+    +
+    \mathbf{p}_{A}.
+    \label{eq:optimized_translation}
+\end{align}
+
+The invariant final row,
+
+\begin{equation}
+    \begin{bmatrix}
+        0 & 0 & 0 & 1
+    \end{bmatrix},
+    \label{eq:invariant_homogeneous_row}
+\end{equation}
+
+is assigned directly instead of being recalculated.
+
+Three implementations were benchmarked: generic \(4 \times 4\) row-by-column multiplication, an unrolled general multiplication, and the specialized homogeneous multiplication. The generic implementation required an average of 4608 cycles, the unrolled implementation required 1422 cycles, and the specialized method required 1146 cycles. This corresponds to an isolated speedup of approximately
+
+\begin{equation}
+    S_{\mathrm{matrix}}
+    =
+    \frac{4608}{1146}
+    \approx
+    4.02.
+    \label{eq:matrix_speedup}
+\end{equation}
+
+\subsection{Benchmark Method}
+
+All alternatives were evaluated using processor cycle counts and numerical deviation from a common reference. Measurements were collected using the Cortex-M data watchpoint and trace cycle counter.
+
+Primitive operations were repeated \(10{,}000\) times, forward kinematics \(1{,}000\) times, and inverse kinematics 100 times. Servo motion was disabled during the measurements to prevent communication and mechanical delays from influencing the computational results.
+
+Combining standard trigonometric functions with the specialized homogeneous multiplication reduced the average forward-kinematic runtime from 39,142 to 18,889 cycles. The resulting speedup was
+
+\begin{equation}
+    S_{\mathrm{FK}}
+    =
+    \frac{39142}{18889}
+    \approx
+    2.07.
+    \label{eq:fk_speedup}
+\end{equation}
+
+The average inverse-kinematic runtime was reduced from 884,852 to 438,841 cycles:
+
+\begin{equation}
+    S_{\mathrm{IK}}
+    =
+    \frac{884852}{438841}
+    \approx
+    2.02.
+    \label{eq:ik_speedup}
+\end{equation}
+
+No positional or rotational deviation from the baseline was measured for the matrix optimization. All 100 benchmarked inverse-kinematic cases converged, requiring an average of 5.2 iterations. The maximum residual Cartesian error was \(4.49\,\mathrm{mm}\), which remained within the configured \(5\,\mathrm{mm}\) convergence tolerance.
+
+Based on these results, standard trigonometric functions and specialized homogeneous-transform multiplication were selected as the final configuration. This combination approximately halved the complete kinematic runtime without introducing additional numerical error.

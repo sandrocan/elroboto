@@ -1,0 +1,181 @@
+\section{Embedded Firmware and Kinematic Motion Stack}
+
+This section describes the embedded motion stack from low-level servo communication to Cartesian target execution. The implementation combines protocol handling, joint safety, forward and inverse kinematics, and reusable motion interfaces.
+
+\subsection{Feetech Servo Communication}
+
+Direct control of the SO-101 required an embedded implementation of the Feetech serial-bus protocol. Only the protocol functions required for position control and feedback were implemented.
+
+The six STS3215 servos are daisy-chained through a serial bus servo driver board and addressed by individual servo IDs. Communication with the bus was implemented over UART at \(1\,\mathrm{Mbit/s}\) using blocking STM32 HAL transmission and reception functions. The implemented operations include torque control, target-position commands, and present-position feedback \cite{feetech_protocol}.
+
+A position command is transmitted as a 14-byte packet containing the protocol header, servo ID, write instruction, acceleration, target position, movement time, speed, and checksum. Multi-byte values are divided into low and high bytes according to the servo protocol. Position feedback is requested using an 8-byte read packet, after which an 8-byte response containing the current encoder position is received. The checksum is calculated as the bitwise complement of the sum of the protocol-defined packet fields.
+
+Initial hardware tests showed that residual or incomplete bytes in the receive buffer could cause subsequent responses to be interpreted as malformed packets. The receive procedure therefore aborts unfinished receptions, clears UART error flags, and drains remaining bytes before issuing a new request. Position reads are repeated up to five times if communication fails.
+
+Received packets are validated using the packet header, servo ID, checksum, and servo-reported error field. Communication and application failures are propagated through a common result enumeration. Higher-level functions can therefore distinguish transmission errors, reception timeouts, malformed responses, invalid targets, and motions that did not reach their target. Position-write commands do not wait for a status packet; instead, feedback is obtained through separate position-read operations.
+
+\subsection{Servo Abstraction and Joint Safety}
+
+A joint-level abstraction separates physical robot properties from the underlying packet protocol. It also prevents invalid kinematic solutions from being transmitted to the mechanism.
+
+Each configured joint stores its servo ID, physical name, minimum position, calibrated home position, maximum position, and a flag indicating whether the joint is considered fixed. The first four joints---shoulder pan, shoulder lift, elbow flex, and wrist flex---form the actively controlled kinematic chain. Wrist rotation and gripper actuation were not required for the selected position-control demonstration and were therefore excluded from the inverse-kinematic variables.
+
+The Feetech servos represent one revolution using 4096 encoder ticks. An angular displacement relative to the calibrated home position is converted according to
+
+\begin{equation}
+    \Delta n =
+    \operatorname{round}
+    \left(
+        \Delta q \frac{4096}{360^{\circ}}
+    \right),
+    \label{eq:angle_to_ticks}
+\end{equation}
+
+where \(\Delta q\) is the angular displacement and \(\Delta n\) is the corresponding tick displacement. The absolute servo target is calculated as
+
+\begin{equation}
+    n_{\mathrm{target}} =
+    n_{\mathrm{home}} + \Delta n.
+    \label{eq:absolute_servo_target}
+\end{equation}
+
+The inverse conversion is used to transform measured encoder values into joint angles:
+
+\begin{equation}
+    \Delta q =
+    \left(
+        n_{\mathrm{current}} - n_{\mathrm{home}}
+    \right)
+    \frac{360^{\circ}}{4096}.
+    \label{eq:ticks_to_angle}
+\end{equation}
+
+Before transmitting a target, the servo abstraction verifies that the selected servo ID is known, the joint is active, and the requested tick value lies within its configured limits. Out-of-range commands are rejected instead of being transmitted. The same limits are applied to intermediate inverse-kinematic solutions, providing a software safety boundary between the numerical solver and the physical robot.
+
+\subsection{Forward Kinematics}
+
+Forward kinematics maps the four active joint angles to the Cartesian end-effector position. The model was constructed from the fixed link transformations specified in the SO-101 robot description.
+
+The kinematic model was derived from the official SO-101 URDF used by the corresponding ROS implementation \cite{so101_urdf}. Fixed translations and orientations between consecutive links were extracted from the URDF and represented using homogeneous transformation matrices.
+
+For an individual joint, the transformation can be written as
+
+\begin{equation}
+    {}^{i-1}\mathbf{T}_{i}(q_i) =
+    \operatorname{Trans}(x_i,y_i,z_i)
+    \mathbf{R}_{z}(\psi_i)
+    \mathbf{R}_{y}(\theta_i)
+    \mathbf{R}_{x}(\phi_i)
+    \mathbf{R}_{z}(q_i),
+    \label{eq:individual_transform}
+\end{equation}
+
+where \(x_i\), \(y_i\), and \(z_i\) are the fixed translations obtained from the URDF, while \(\phi_i\), \(\theta_i\), and \(\psi_i\) describe its fixed orientation. The variable \(q_i\) represents the rotation of the corresponding servo joint.
+
+The complete base-to-end-effector transformation is obtained through sequential multiplication:
+
+\begin{equation}
+\begin{split}
+    {}^{0}\mathbf{T}_{E}(\mathbf{q}) =\,
+    &{}^{0}\mathbf{T}_{1}(q_1)
+    {}^{1}\mathbf{T}_{2}(q_2)
+    {}^{2}\mathbf{T}_{3}(q_3) \\
+    &{}^{3}\mathbf{T}_{4}(q_4)
+    {}^{4}\mathbf{T}_{E}.
+\end{split}
+\label{eq:forward_kinematic_chain}
+\end{equation}
+
+The translation component of the resulting matrix gives the modeled Cartesian end-effector position:
+
+\begin{equation}
+    \mathbf{p}(\mathbf{q}) =
+    \begin{bmatrix}
+        x(\mathbf{q}) \\
+        y(\mathbf{q}) \\
+        z(\mathbf{q})
+    \end{bmatrix}.
+    \label{eq:end_effector_position}
+\end{equation}
+
+Although the transformation chain also produces an end-effector orientation, only its Cartesian position is used by the implemented inverse-kinematic solver.
+
+\subsection{Numerical Inverse Kinematics}
+
+Inverse kinematics converts a requested Cartesian position into valid joint targets. An iterative numerical method was selected to avoid deriving a robot-specific analytical solution.
+
+The implemented solver uses a numerically approximated \(3 \times 4\) position Jacobian. At each iteration, one joint angle is perturbed and the resulting Cartesian displacement is evaluated using forward kinematics. The \(i\)-th Jacobian column is approximated by
+
+\begin{equation}
+    \mathbf{J}_{i} \approx
+    \frac{
+        \mathbf{p}
+        \left(
+            \mathbf{q} + \delta q_i \mathbf{e}_i
+        \right)
+        -
+        \mathbf{p}(\mathbf{q})
+    }{
+        \delta q_i
+    },
+    \label{eq:numerical_jacobian}
+\end{equation}
+
+where \(\mathbf{e}_i\) is the unit vector associated with joint \(i\), and \(\delta q_i\) is the numerical perturbation.
+
+The Cartesian position error is defined as
+
+\begin{equation}
+    \mathbf{e} =
+    \mathbf{p}_{\mathrm{target}}
+    -
+    \mathbf{p}(\mathbf{q}).
+    \label{eq:cartesian_error}
+\end{equation}
+
+The joint update is calculated using the damped least-squares method \cite{damped_least_squares}:
+
+\begin{equation}
+    \Delta \mathbf{q} =
+    \mathbf{J}^{T}
+    \left(
+        \mathbf{J}\mathbf{J}^{T}
+        +
+        \lambda^{2}\mathbf{I}
+    \right)^{-1}
+    \mathbf{e},
+    \label{eq:damped_least_squares}
+\end{equation}
+
+where \(\lambda\) is the damping factor and \(\mathbf{I}\) is the \(3 \times 3\) identity matrix. The damping term reduces sensitivity when the Jacobian becomes poorly conditioned.
+
+Because four joints are used to control three Cartesian coordinates, the position-level system is kinematically redundant. The solution therefore depends on the initial configuration. The measured joint positions are used as the initial estimate, favoring solutions close to the robot's current pose.
+
+For the physical demonstration, the solver was configured with a maximum of 200 iterations, a Cartesian tolerance of \(5\,\mathrm{mm}\), a numerical perturbation of \(0.5^{\circ}\), a damping factor of \(0.02\), and a maximum joint update of \(5^{\circ}\) per iteration. Each update is limited before the resulting joint angles are clamped to their individual ranges.
+
+Convergence is reached when
+
+\begin{equation}
+    \left\|
+        \mathbf{p}_{\mathrm{target}}
+        -
+        \mathbf{p}(\mathbf{q})
+    \right\|_{2}
+    \leq
+    \varepsilon_{p},
+    \label{eq:ik_convergence}
+\end{equation}
+
+where \(\varepsilon_{p}=5\,\mathrm{mm}\). If the solver exceeds the iteration limit or the damped matrix cannot be inverted, the operation returns an error and no unchecked target is transmitted.
+
+\subsection{Motion Interfaces and Hardware Validation}
+
+The calculated joint targets are exposed through blocking and non-blocking motion interfaces. This allows the kinematic module to support both simple motion sequences and higher-level feedback controllers.
+
+Both interfaces first read the current encoder positions and use the corresponding joint angles as the inverse-kinematic seed. The complete numerical IK procedure is executed before physical motion begins and produces one final target for each active joint. The implementation therefore provides waypoint-level motion rather than continuous Cartesian trajectory generation.
+
+The non-blocking interface transmits the calculated joint targets and returns immediately. The blocking interface transmits the same targets and then polls the servo positions until all active joints lie within a configurable tolerance or a timeout occurs. An optional callback allows the waiting procedure to be interrupted by higher-level safety logic.
+
+The communication, forward-kinematic, inverse-kinematic, and blocking movement functions were validated on the physical SO-101. An acceptance tolerance of approximately 50 servo ticks was used during the initial uncontrolled motion tests. The arm repeatedly reached the requested Cartesian waypoints within this criterion.
+
+The final square demonstration uses the same IK target interface together with the joint-space feedback controller described in Section~\ref{sec:joint_control}. The demonstration should be interpreted as a square-shaped sequence of Cartesian waypoints in a constant-\(x\) plane. Straight-line Cartesian motion between consecutive waypoints is neither explicitly generated nor measured.

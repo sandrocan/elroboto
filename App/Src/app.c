@@ -53,7 +53,7 @@ static const char *app_state_to_string(App_State state);
 static void app_process_button(uint32_t now_ms);
 static Servo_Result_t app_unlock_all_joints(void);
 static uint8_t app_motion_abort_requested(void);
-static void app_log_control_telemetry(const Kinematics_ControlTelemetry_t *telemetry);
+static void app_log_joint_tick_pid_telemetry(const Kinematics_JointTickPidTelemetry_t *telemetry);
 static void app_log_resolved_rate_telemetry(const Kinematics_ResolvedRateTelemetry_t *telemetry);
 static uint8_t app_wait_for_skin_sample(uint32_t timeout_ms);
 static void app_pause_for_skin(uint32_t now_ms);
@@ -116,14 +116,6 @@ void App_Init(UART_HandleTypeDef *servo_uart, UART_HandleTypeDef *cell_uart)
     }
 
     printf("\r\nelroboto booted\r\n");
-
-    if (APP_SKIN_TEST_ONLY != 0U)
-    {
-        app_motion_enabled = 0U;
-        printf("E-skin test mode active: all servo commands disabled\r\n");
-        app_set_state(APP_STATE_IDLE);
-        return;
-    }
 
     Servo_Init();
 
@@ -229,32 +221,6 @@ void App_Init(UART_HandleTypeDef *servo_uart, UART_HandleTypeDef *cell_uart)
 
 void App_Process(uint32_t now_ms)
 {
-    if (APP_SKIN_TEST_ONLY != 0U)
-    {
-        UartCell_Process();
-
-        if ((uint32_t)(now_ms - last_status_log_ms) >= APP_SKIN_LOG_PERIOD_MS)
-        {
-            UartCell_Diagnostics_t diagnostics;
-
-            last_status_log_ms = now_ms;
-            UartCell_GetDiagnostics(&diagnostics);
-
-            printf("skin=%.3f rx=%lu valid=%lu invalid=%lu "
-                   "uart_err=%lu last_err=0x%08lx rearm_fail=%lu last=0x%02x\r\n",
-                   (float)skin_distance,
-                   (unsigned long)diagnostics.received_byte_count,
-                   (unsigned long)diagnostics.valid_frame_count,
-                   (unsigned long)diagnostics.invalid_frame_count,
-                   (unsigned long)diagnostics.uart_error_count,
-                   (unsigned long)diagnostics.last_uart_error,
-                   (unsigned long)diagnostics.receive_restart_failure_count,
-                   (unsigned int)diagnostics.last_received_byte);
-        }
-
-        return;
-    }
-
     static uint8_t tcp_start_saved = 0U;
     static uint8_t step_index = 0U;
     static Kinematics_Position_t tcp_start_position;
@@ -399,10 +365,10 @@ void App_Process(uint32_t now_ms)
                target_position.z);
     }
 
-    (void)app_log_control_telemetry;
+    (void)app_log_joint_tick_pid_telemetry;
 
 #if 0
-    result = Kinematics_MoveEndEffectorToPositionControlled(
+    result = Kinematics_MoveEndEffectorToPositionJointTickPid(
         &target_position,
         APP_MOVEMENT_SPEED,
         APP_MOVEMENT_ACCELERATION,
@@ -410,24 +376,13 @@ void App_Process(uint32_t now_ms)
         20000U,
         &ik_config,
         app_motion_abort_requested,
-        app_log_control_telemetry
+        app_log_joint_tick_pid_telemetry
     );
 
 #endif
 
-
-    result = Kinematics_MoveEndEffectorToPositionResolvedRate(
-        &target_position,
-        APP_MOVEMENT_SPEED,
-        APP_MOVEMENT_ACCELERATION,
-        20000U,
-        &ik_config,
-        app_motion_abort_requested,
-        app_log_resolved_rate_telemetry
-    );
-
-
 #if 0
+    /* Baseline experiment: one IK command without outer TCP feedback. */
     result = Kinematics_MoveEndEffectorToPositionOneShotAndCheck(
         &target_position,
         APP_MOVEMENT_SPEED,
@@ -439,8 +394,8 @@ void App_Process(uint32_t now_ms)
     );
 #endif
 
-#if 0
-    result = Kinematics_MoveEndEffectorToPositionOneShotThenResolvedRate(
+    /* Final application path: Cartesian resolved-rate feedback control. */
+    result = Kinematics_MoveEndEffectorToPositionResolvedRate(
         &target_position,
         APP_MOVEMENT_SPEED,
         APP_MOVEMENT_ACCELERATION,
@@ -450,7 +405,7 @@ void App_Process(uint32_t now_ms)
         app_log_resolved_rate_telemetry
     );
 
-#endif
+
     app_process_button(HAL_GetTick());
 
     if (result != SERVO_RESULT_OK)
@@ -857,7 +812,7 @@ static Servo_Result_t app_hold_active_joints(void)
     return first_error;
 }
 
-static void app_log_control_telemetry(const Kinematics_ControlTelemetry_t *telemetry)
+static void app_log_joint_tick_pid_telemetry(const Kinematics_JointTickPidTelemetry_t *telemetry)
 {
     if (telemetry == NULL)
     {

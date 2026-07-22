@@ -1,7 +1,7 @@
 /**
  ******************************************************************************
  * @file           : uart.c
- * @author         : Niklas Peter
+ * @author         : Niklas Peter, Sandro Canalicchio
  * @brief          : UART adapters for debug, servo bus and e-skin reception.
  ******************************************************************************
  */

@@ -31,7 +31,7 @@
 | `app.c/.h` | Startup sequence, square trajectory, application state, button abort, telemetry output |
 | `kinematics.c/.h` | Tick/angle conversion, FK, numerical IK, motion helpers, controlled motion |
 | `operations.c/.h` | Homogeneous matrix operations, local link transforms, rounding, `3x3` inversion |
-| `control.c/.h` | One PID controller per active servo joint |
+| `control.c/.h` | Active Cartesian P step for resolved-rate motion and optional joint-tick PID |
 | `servo.c/.h` | Joint configuration, servo packet generation, position reads/writes, torque control, homing |
 | `uart.c/.h` | UART handle attachment, byte transmission/reception, RX cleanup |
 | `tests.c/.h` | Standalone home, direct-kinematics, and inverse-kinematics tests |
@@ -577,11 +577,14 @@ target_raw[4]
 |---|---|---|---|
 | `Kinematics_MoveEndEffectorToPosition()` | Once | Send final raw target once to J1–J4 | None |
 | `Kinematics_MoveEndEffectorToPositionAndWait()` | Once | Send final raw target once to J1–J4 | Sequential tick polling |
-| `Kinematics_MoveEndEffectorToPositionControlled()` | Once | Repeated incremental PID commands | All joints within tolerance for 3 cycles |
+| `Kinematics_MoveEndEffectorToPositionJointTickPid()` | Once | Repeated incremental joint-tick PID commands | All joints within tolerance for 3 cycles |
+| `Kinematics_MoveEndEffectorToPositionResolvedRate()` | One DLS step per cycle | Synchronous four-joint updates | Cartesian error inside configured tolerance |
 
-The application uses the controlled variant.
+The final application uses the resolved-rate variant. The joint-tick PID remains
+available as an additional implementation but is not part of the reported
+baseline-versus-resolved-rate comparison.
 
-### 4.9 Controlled Motion Loop
+### 4.9 Optional Joint-Tick PID Motion Loop
 
 The IK target is solved once before entering the control loop. The IK is **not** recomputed after every servo update.
 
@@ -595,7 +598,7 @@ Solve IK once -> fixed target_raw[4]
 Reset four PID controllers
         |
         v
-Every 50 ms:
+Every 20 ms:
     read all four current raw positions
     calculate each tick error
     run PID for joints outside tolerance
@@ -616,7 +619,7 @@ Success after all four joints remain inside tolerance for 3 cycles
 | `Kd` | `0.05` |
 | Maximum update per cycle | `100 ticks` |
 | Derivative filter time constant | `0.05 s` |
-| Control period | `50 ms` |
+| Control period | `20 ms` |
 | Required settled cycles | `3` |
 
 Controller equation:
@@ -846,7 +849,7 @@ Calculate start TCP once
 Build target for current square step
         |
         v
-Kinematics_MoveEndEffectorToPositionControlled()
+Kinematics_MoveEndEffectorToPositionResolvedRate()
         |
         +-- failure -> FAULT
         |
@@ -865,18 +868,17 @@ Process button again
 
 Although `App_Process()` is declared as a non-blocking application cycle in `app.h`, the current implementation blocks while the controlled motion is active, up to `20 s` per corner.
 
-### 5.8 Controlled Move Call
+### 5.8 Active Resolved-Rate Move Call
 
 ```c
-Kinematics_MoveEndEffectorToPositionControlled(
+Kinematics_MoveEndEffectorToPositionResolvedRate(
     &target_position,
     300U,
     50U,
-    5U,
     20000U,
     &ik_config,
     app_motion_abort_requested,
-    app_log_control_telemetry
+    app_log_resolved_rate_telemetry
 );
 ```
 
@@ -884,10 +886,10 @@ Kinematics_MoveEndEffectorToPositionControlled(
 |---|---:|
 | Speed | `300` |
 | Acceleration | `50` |
-| Tick tolerance | `5` |
 | Timeout | `20000 ms` |
-| Abort source | B1 motion-disable flag |
-| Telemetry | One UART line per joint and control cycle |
+| Position tolerance | `0.001 m` through `ik_config` |
+| Stop conditions | B1 event, E-Skin threshold, or E-Skin data timeout |
+| Telemetry | Periodic model-based TCP error and joint ticks |
 
 ### 5.9 B1 Abort and Unlock Flow
 

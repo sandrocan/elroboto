@@ -6,7 +6,7 @@
 
 The numerical inverse-kinematic solver described previously produces joint angles for which the modeled end-effector position satisfies its convergence criterion. After conversion to integer ticks, however, a single command does not guarantee that the servos reach those targets exactly. The internal position controller of each STS3215 acts only on its own motor target \cite{feetech_protocol}; it does not evaluate the Cartesian result of the coupled four-joint motion.
 
-This limitation was quantified with a one-shot baseline. The current encoder positions were used as the seed for the complete inverse-kinematic solution, and the resulting four targets were transmitted in one synchronous write. Encoder feedback was subsequently converted back to joint angles and evaluated with forward kinematics, but the residual Cartesian error was not used for correction. The movement was smooth, yet one recorded waypoint stopped with an estimated error of approximately \(20.5\,\mathrm{mm}\). This result motivated an outer feedback loop around the complete kinematic chain.
+This limitation was quantified with a one-shot baseline. The current encoder positions were used as the seed for the complete inverse-kinematic solution, and the resulting four targets were transmitted in one synchronous write. No outer correction followed. After at least \(300\,\mathrm{ms}\), the motion was classified as settled when all four encoder values changed by at most one tick for three consecutive observation cycles. The final encoder values were then converted to joint angles and evaluated with forward kinematics. A \(20\,\mathrm{s}\) timeout covered communication or settling failures. This procedure measures the endpoint reached by one IK command without weakening the \(1\,\mathrm{mm}\) IK convergence tolerance.
 
 The controlled variable is not an independently measured physical tool center point (TCP). It is the model-based estimate
 
@@ -77,7 +77,7 @@ The floating-point joint command is updated by
     \label{eq:resolved_rate_joint_accumulation}
 \end{equation}
 
-Accumulation preserves sub-tick corrections that would otherwise be lost during repeated integer conversion. After joint-limit checks, the four position targets are converted to ticks and transmitted in one synchronous write. These ticks are the physical servo commands. The read--estimate--correct--write cycle terminates when \(\|\mathbf{e}_{p}\|_2<1\,\mathrm{mm}\), when the motion is aborted, or when its finite timeout expires.
+Accumulation preserves sub-tick corrections that would otherwise be lost during repeated integer conversion. After joint-limit checks, the four position targets are converted to ticks and transmitted in one synchronous write. These ticks are the physical servo commands. The read--estimate--correct--write cycle terminates when \(\|\mathbf{e}_{p}\|_2\leq1\,\mathrm{mm}\), when the motion is aborted, or when its finite timeout expires.
 
 Although the actuators receive joint-position targets, the outer feedback error and controller output are defined in Cartesian space. The method is therefore a Cartesian resolved-rate controller rather than four independent joint-space controllers. The \(1\,\mathrm{mm}\) stopping threshold used for this controller evaluation is distinct from the \(5\,\mathrm{mm}\) tolerance used for the initial standalone IK validation.
 
@@ -104,6 +104,30 @@ An integral term could compensate for a persistent modeled TCP offset, but would
 
 \subsection{Experimental Result and Limitation}
 
-The baseline and controlled tests used the same square geometry, servo speed, acceleration, timeout, kinematic model, and joint limits. Whereas the recorded one-shot case retained approximately \(20.5\,\mathrm{mm}\) estimated error, a complete square run with the resolved-rate P controller terminated below \(1\,\mathrm{mm}\) at all four waypoints. This reduction was the basis for selecting the outer P loop.
+The baseline and controlled tests began from the same commanded start pose and used the same four waypoint targets, servo speed, acceleration, timeout, kinematic model, and joint limits. The first target led from the central start pose to the upper-left corner; the remaining targets followed the other square corners. No E-Skin pause or communication fault occurred in either recorded run. Table~\ref{tab:controller_endpoint_error} reports the Euclidean terminal TCP errors reconstructed from servo feedback.
 
-The result demonstrates improved consistency between the commanded TCP and the position reconstructed from servo encoders. It does not establish sub-millimeter physical accuracy: both values depend on the same forward model, and the comparison is based on individual recorded runs rather than repeated external measurements. Independent metrology and repeated trials would be required to characterize physical accuracy, repeatability, and overshoot.
+\begin{table}[!h]
+    \centering
+    \caption{Model-based terminal TCP error for one hardware run per method.}
+    \label{tab:controller_endpoint_error}
+    \begin{tabular}{lrr}
+        \hline
+        Waypoint & No outer controller & Resolved rate \\
+        \hline
+        Upper left  & \(16.44\,\mathrm{mm}\) & \(0.93\,\mathrm{mm}\) \\
+        Upper right & \(12.60\,\mathrm{mm}\) & \(0.84\,\mathrm{mm}\) \\
+        Lower right & \(4.21\,\mathrm{mm}\)  & \(0.90\,\mathrm{mm}\) \\
+        Lower left  & \(7.28\,\mathrm{mm}\)  & \(0.81\,\mathrm{mm}\) \\
+        \hline
+        Mean        & \(10.13\,\mathrm{mm}\) & \(0.87\,\mathrm{mm}\) \\
+        Maximum     & \(16.44\,\mathrm{mm}\) & \(0.93\,\mathrm{mm}\) \\
+        \hline
+\end{tabular}
+\end{table}
+
+Detailed Cartesian error components and terminal cycle indices are provided in
+Appendix~\ref{app:controller-results}.
+
+The resolved-rate controller satisfied the \(1\,\mathrm{mm}\) criterion at every waypoint. Relative to the one-shot baseline, the mean model-based error decreased by approximately \(91.4\,\%\), or by a factor of \(11.6\). This result was the basis for selecting the outer P loop for the final application.
+
+The result demonstrates improved consistency between the commanded TCP and the position reconstructed from servo encoders. It does not establish sub-millimeter physical accuracy or statistical repeatability: both values depend on the same forward model, and only one run per method was recorded. Independent metrology and repeated trials would be required to characterize physical accuracy, repeatability, and overshoot.

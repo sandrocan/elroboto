@@ -1,7 +1,7 @@
 /**
  ******************************************************************************
  * @file           : servo.c
- * @author         : Niklas Peter
+ * @author         : Niklas Peter, Sandro Canalicchio
  * @brief          : All functions regarding control and communication with Feetech motors
  ******************************************************************************
  */
@@ -902,6 +902,9 @@ const char *Servo_ResultToString(Servo_Result_t result)
 
         case SERVO_RESULT_ABORTED:
             return "SERVO_RESULT_ABORTED";
+
+        case SERVO_RESULT_INVALID_ARGUMENT:
+            return "SERVO_RESULT_INVALID_ARGUMENT";
 
         default:
             return "SERVO_RESULT_UNKNOWN";

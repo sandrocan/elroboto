@@ -6,13 +6,15 @@
 motion stack of a six-axis SO-101 arm directly on an STM32 microcontroller. It
 connects a NUCLEO-U545RE-Q to six Feetech STS3215 serial-bus servos through a
 Waveshare Bus Servo Adapter and executes Cartesian motion without a host PC,
-ROS, or an external motion controller.
+ROS, or an external motion controller. A large-area event-driven E-Skin provides
+proximity feedback through an ESP32-C6 and a second MCU UART.
 
 The repository covers the full path from board configuration and UART
 communication to servo calibration, forward and inverse kinematics, closed-loop
-joint control, diagnostics, and application-level trajectory execution. The
-current demonstration moves the arm's tool center point (TCP) continuously
-around a square in the YZ plane.
+Cartesian control, E-Skin monitoring, diagnostics, and application-level
+trajectory execution. The current demonstration moves the arm's tool center
+point (TCP) continuously around a square in the YZ plane and pauses the motion
+when the E-Skin reports a nearby object.
 
 <!--
 Portfolio media placeholder. Suggested asset:
@@ -30,37 +32,44 @@ When available, place a wide photograph or demo GIF here, for example:
   SO-101 kinematic chain.
 - Joint calibration and mechanical limits enforced before position commands
   reach the servo bus.
-- Four independent PID controllers close the loop using live encoder feedback.
+- Cartesian resolved-rate P control using live servo position feedback.
+- Event-driven E-Skin integration over UART4 with startup validation, runtime
+  timeout supervision, pause/hold behavior, and hysteretic resume handling.
 - Cartesian square trajectory generated and executed autonomously on the MCU.
 - Structured error propagation for UART failures, malformed responses,
-  unreachable targets, joint-limit violations, timeouts, and user aborts.
+  malformed E-Skin frames, stale sensor data, unreachable targets, joint-limit
+  violations, timeouts, and user aborts.
 - Reproducible CMake/Ninja cross-build using GCC for Arm Embedded.
 
 ## System overview
 
 ```text
-                         ST-LINK Virtual COM Port
-                         115200 baud diagnostics
-                                  ^
-                                  |
-+----------------+       +--------+---------+       +-----------------------+
-| Application    |------>| Kinematics and   |------>| Servo protocol and    |
-| square path    |       | PID motion loop  |       | checked joint targets |
-+----------------+       +------------------+       +-----------+-----------+
-                                                               |
-                                                  LPUART1, 1 Mbit/s, 8N1
-                                                               |
-                                                    +----------v----------+
-                                                    | Waveshare Bus Servo |
-                                                    | Adapter (A)         |
-                                                    +----------+----------+
-                                                               |
-                                                       serial servo bus
-                                                               |
-                                                    +----------v----------+
-                                                    | 6 x Feetech         |
-                                                    | STS3215 / SO-101    |
-                                                    +---------------------+
+Large-area E-Skin --> ESP32-C6 --> UART4 RX, 115200 baud
+                                          |
+                                          v
+                         +----------------+----------------+
+                         | Application state and E-Skin    |
+                         | pause/fault supervision         |
+                         +---------------+-----------------+
+                                         |
+                                         v
+                         +---------------+-----------------+
+                         | Resolved-rate control and       |
+                         | damped least-squares kinematics |
+                         +---------------+-----------------+
+                                         |
+                              checked joint targets
+                                         |
+                                         v
+                         +---------------+-----------------+
+                         | STS3215 protocol on LPUART1     |
+                         | 1 Mbit/s --> Waveshare adapter  |
+                         +---------------+-----------------+
+                                         |
+                                         v
+                              6 x STS3215 / SO-101
+
+STM32 diagnostics --> USART1 --> ST-LINK Virtual COM Port, 115200 baud
 ```
 
 The software is intentionally layered. Hardware initialization remains in the
@@ -74,6 +83,8 @@ kinematics, control, UART adapter, and servo protocol live under `App/`.
 | **SO-101 robot arm** | Six-degree-of-freedom mechanical platform |
 | **6 x Feetech STS3215** | Smart serial-bus actuators with position feedback |
 | **Waveshare Bus Servo Adapter (A), WSH-SBS-01** | Interface between the MCU UART and the single-wire servo bus |
+| **Large-area event-driven E-Skin** | Distributed tactile/proximity sensing surface on the robot |
+| **ESP32-C6** | Aggregates the E-Skin data and transmits the maximum proximity value to the STM32 |
 | **ST NUCLEO-U545RE-Q** | Main controller and integrated ST-LINK debugger |
 | **STM32U545RET6Q** | Arm Cortex-M33 MCU with hardware FPU, 512 KiB Flash, and 274 KiB SRAM |
 | **External 12 V supply** | Separate power source for adapter and servos |
@@ -113,6 +124,35 @@ GND                    ----------------  GND
 
 <!-- Suggested future asset: docs/images/hardware-wiring.jpg -->
 
+### E-Skin wiring and UART protocol
+
+The project uses the large-area event-driven E-Skin described by Bergner,
+Dean-Leon, and Cheng. An ESP32-C6 aggregates its sensor data and sends the
+maximum proximity value as an ASCII line to the STM32.
+
+| Signal | ESP32-C6 connection | STM32 connection |
+| --- | --- | --- |
+| E-Skin data | TX / GPIO16 | PC11 / UART4_RX / CN7 pin 2 |
+| Reference | GND | GND |
+
+UART4 operates at 115,200 baud with 8N1 framing and no flow control. The current
+protocol is unidirectional, so PC10 / UART4_TX is configured in CubeMX but is not
+required by the physical connection. Each accepted measurement contains exactly
+five ASCII characters followed by LF; CR before LF is ignored. Valid examples
+are `0.123\n` and `0.123\r\n`.
+
+UART4 receives one byte at a time using interrupts. The receive callback only
+assembles and publishes a complete frame; `UartCell_Process()` performs the
+floating-point conversion in foreground context. Sequence counters protect the
+frame handover from concurrent ISR updates. Byte, frame, UART-error, receive-
+restart, and last-valid-sample diagnostics remain available to the application.
+
+The E-Skin design and event-driven sensing principle are described in:
+
+> F. Bergner, E. Dean-Leon, and G. Cheng, “Design and Realization of an
+> Efficient Large-Area Event-Driven E-Skin,” *Sensors*, vol. 20, no. 7, 1965,
+> 2020. [doi:10.3390/s20071965](https://doi.org/10.3390/s20071965).
+
 ## STM32 configuration
 
 [`elroboto.ioc`](elroboto.ioc) is the source of truth for the MCU, pins,
@@ -134,6 +174,10 @@ package 1.8.0.
 | Servo interface | LPUART1, PA2 TX and PA3 RX, AF8 |
 | Servo UART format | 1,000,000 baud, 8 data bits, no parity, 1 stop bit, no flow control |
 | LPUART1 clock | HSI16 at 16 MHz |
+| Servo RX buffering | LPUART1 RX FIFO enabled |
+| E-Skin interface | UART4, PC10 TX and PC11 RX, AF8; only RX is physically required |
+| E-Skin UART format | 115,200 baud, 8N1, no flow control; interrupt-driven receive |
+| UART4 clock | APB1 peripheral clock at 16 MHz |
 | Debug interface | USART1 through the ST-LINK Virtual COM Port |
 | Debug pins | PA9 TX and PA10 RX, AF7 |
 | Debug UART format | 115,200 baud, 8N1, no flow control |
@@ -141,25 +185,27 @@ package 1.8.0.
 The 16 MHz clock is an important integration decision. During bring-up, a 4 MHz
 system clock combined with byte-by-byte receive calls could not reliably capture
 the complete six-byte response at 1 Mbit/s. Receiving each expected packet as a
-single block at 16 MHz resolved the observed data loss. The bring-up history is
-documented in [`docs/servo_bus_bringup.md`](docs/servo_bus_bringup.md).
+single block at 16 MHz resolved the observed data loss. The LPUART1 RX FIFO also
+buffers short servo-response bursts while UART4 interrupts are serviced. The
+bring-up history is documented in
+[`docs/servo_bus_bringup.md`](docs/servo_bus_bringup.md).
 
 ## Firmware architecture
 
 ```text
 Core/Src/main.c
   |
-  +-- CubeMX/HAL: clock, power, ICACHE, GPIO, EXTI, LPUART1
+  +-- CubeMX/HAL: clock, power, ICACHE, GPIO, EXTI, LPUART1, UART4
   +-- Nucleo BSP: USART1 Virtual COM Port and B1 user button
   |
-  `-- App_Init() / App_Process()
+  `-- App_Init(servo UART, E-Skin UART) / App_Process()
         |
-        +-- app.c          demo sequencing, state, abort handling, telemetry
+        +-- app.c          demo sequencing, E-Skin pause/fault logic, telemetry
         +-- kinematics.c   calibration conversion, FK, IK, Cartesian movement
-        +-- control.c      per-joint PID controller
+        +-- control.c      resolved-rate Cartesian P step and optional joint-tick PID
         +-- operations.c   transforms, optimized matrix math, 3x3 inversion
         +-- servo.c        STS3215 packets, feedback, limits, torque, homing
-        `-- uart.c         HAL UART transport adapter and receive recovery
+        `-- uart.c         servo transport and interrupt-driven E-Skin parser
 ```
 
 ### Servo communication and joint safety
@@ -171,15 +217,17 @@ application:
 - torque enable and disable;
 - present-position reads from register `0x38`;
 - position, speed, and acceleration writes beginning at register `0x29`;
+- synchronous position reads and writes for the four-joint control cycle;
 - header, response ID, checksum, and servo-status validation;
 - bounded TX/RX timeouts, stale-RX draining, and retry handling;
 - centralized ID-to-joint mapping, home values, fixed-joint flags, and raw
   position limits.
 
-Commands are addressed to individual servo IDs. The default motion path does
-not use broadcast writes. `Servo_WritePosition()` rejects unknown or fixed
-joints and refuses targets outside the configured raw range before generating a
-bus packet.
+Single-servo operations are addressed to individual IDs. The resolved-rate
+motion path uses the STS3215 broadcast ID only for protocol-defined synchronous
+read and write commands after validating every participating ID and target.
+`Servo_WritePosition()` rejects unknown or fixed joints and refuses targets
+outside the configured raw range before generating a bus packet.
 
 ### Joint configuration
 
@@ -267,7 +315,7 @@ square application currently selects:
 | Parameter | Demo value |
 | --- | ---: |
 | Maximum iterations | 200 |
-| Cartesian position tolerance | 0.005 m |
+| Cartesian position tolerance | 0.001 m |
 | Finite-difference step | 0.5 deg |
 | Damping factor | 0.02 |
 | Maximum joint update per iteration | 5 deg |
@@ -275,44 +323,68 @@ square application currently selects:
 The solver reports `TARGET_NOT_REACHED` for an unreachable or numerically
 unsolved target rather than issuing a partially validated Cartesian move.
 
-## Closed-loop joint controller
+## Closed-loop controllers
 
-After IK produces the four raw joint targets, the controlled Cartesian move
-runs one PID instance per active joint. Every 50 ms, the firmware:
+The final application uses Cartesian resolved-rate P control. Every 20 ms, the
+firmware synchronously reads the four active joints, reconstructs the model-based
+TCP position, and calls `Control_ResolvedRate_CalculateStep()`. This HAL-free
+function calculates the Cartesian error and a speed-limited P step using
+`Kp = 2.0 s^-1` and a maximum TCP speed of `0.1 m/s`. The kinematics module maps
+the resulting Cartesian increment to joint increments through one damped
+least-squares step, applies joint limits, and sends all four targets in one
+synchronous packet.
 
-1. reads the current encoder position of all four active joints;
-2. computes each signed raw-tick error;
-3. applies PID feedback with derivative low-pass filtering and conditional
-   integration for anti-windup;
-4. limits each correction to 100 ticks per control cycle;
-5. clamps the command to the joint's calibrated raw limits;
-6. sends a checked position command to every joint still outside tolerance;
-7. publishes detailed telemetry through the debug UART.
+An additional joint-tick PID implementation remains available through
+`Kinematics_MoveEndEffectorToPositionJointTickPid()`. It regulates the raw-tick
+error of each active motor independently, applies derivative filtering and
+conditional integration, and limits each update to 100 ticks. This optional
+path is included in the source but is not selected by the final application or
+used in the reported baseline-versus-resolved-rate comparison.
 
-The current controller constants are `Kp = 1.0`, `Ki = 0.5`, `Kd = 0.05`, with
-a derivative-filter time constant of 50 ms. A move is accepted only after all
-four joints remain within the configured tolerance for three consecutive
-cycles. Communication errors, user aborts, and the 20 s motion timeout are
-returned to the application as explicit result codes.
+## E-Skin integration and motion response
 
-Example telemetry fields include cycle time, joint ID, current and target raw
-positions, signed error, PID output, applied correction, final command,
-settled-state indication, and joint-limit clamping.
+The servo bus, E-Skin input, and debug output use three independent UART
+peripherals. Servo requests and responses run on LPUART1, E-Skin bytes arrive
+asynchronously on UART4, and `printf()` diagnostics are routed through USART1 to
+the ST-LINK Virtual COM Port. UART4 interrupts can therefore collect sensor data
+while the foreground controller is communicating with the servos or logging.
+
+The application treats E-Skin availability as a prerequisite for motion:
+
+| Parameter | Value | Behavior |
+| --- | ---: | --- |
+| Startup sample timeout | 2,000 ms | Enter latched `FAULT` before the first motion command if no valid sample arrives |
+| Runtime sample timeout | 1,000 ms | Stop motion and enter latched `FAULT` if valid data becomes stale |
+| Stop threshold | 0.050 | Pause an active square segment and command the measured joint positions as hold targets |
+| Clear threshold | 0.020 | Begin the resume qualification below this value |
+| Clear stability time | 500 ms | Resume the interrupted segment only after the value remains clear for the full interval |
+
+Separate stop and clear thresholds provide hysteresis, preventing rapid
+pause/resume switching near one threshold. While paused, the servos remain
+powered and hold their measured positions. A sensor timeout or a failed hold
+command latches `FAULT`; it does not automatically resume. Detection and the
+resulting stop are software-based and depend on UART scheduling, the current
+servo transaction, and servo response time.
 
 ## Square TCP application
 
 The default application in [`App/Src/app.c`](App/Src/app.c) is an autonomous
 Cartesian demonstration:
 
-1. Initialize the servo transport and calibrated joint table.
-2. Command joints 1-4 to the known start configuration
+1. Initialize the servo transport, calibrated joint table, and interrupt-driven
+   E-Skin reception.
+2. Require a valid E-Skin sample within 2 s and verify that the stop threshold
+   is not active.
+3. Command joints 1-4 to the known start configuration
    `[2047, 1208, 2548, 2372]` ticks.
-3. Wait for every joint to reach that configuration.
-4. Convert the start configuration to angles and calculate the start TCP with
+4. Wait for every joint to reach that configuration.
+5. Convert the start configuration to angles and calculate the start TCP with
    forward kinematics.
-5. Generate four corner targets around that TCP while keeping X constant.
-6. Solve IK and execute each target with the closed-loop joint controller.
-7. Repeat the four Cartesian segments continuously.
+6. Generate four corner targets around that TCP while keeping X constant.
+7. Execute each target with the Cartesian resolved-rate P controller while
+   supervising the E-Skin and B1 abort input.
+8. After a proximity pause clears, recalculate and continue the interrupted
+   target; otherwise repeat the four Cartesian segments continuously.
 
 The square lies in the YZ plane. Each corner is offset by 0.12 m in Y and
 0.12 m in Z from the calculated center, producing a nominal side length of
@@ -331,9 +403,9 @@ The square lies in the YZ plane. Each corner is offset by 0.12 m in Y and
                           +--------------------> +Y
 ```
 
-The demo uses servo speed `300`, acceleration `50`, a five-tick controller
-tolerance, and a 20 s timeout per corner. These speed and acceleration values
-are STS3215 command units, not SI units.
+The demo uses servo speed `300`, acceleration `50`, a 1 mm Cartesian target
+tolerance, a 20 ms resolved-rate step period, and a 20 s timeout per corner.
+The speed and acceleration values are STS3215 command units, not SI units.
 
 Pressing the Nucleo B1 user button sets an abort flag, stops the square sequence,
 and disables torque on all six joints. The interrupt handler only records the
@@ -348,21 +420,25 @@ event; debouncing and servo communication occur in application context.
 
 ## Error handling and operational boundaries
 
-The firmware exposes failures instead of silently discarding them. Result codes
-cover transport errors, receive timeouts, invalid headers, unexpected IDs,
-checksum failures, servo-reported errors, invalid positions, fixed or unknown
-joints, null arguments, unreachable targets, and motion aborts.
+The firmware exposes failures through result codes, application states, and
+diagnostic counters instead of silently discarding them. These mechanisms cover
+transport errors, receive timeouts, invalid headers, unexpected IDs, checksum
+failures, servo-reported errors, invalid positions, fixed or unknown joints,
+invalid arguments, unreachable targets, motion aborts, malformed E-Skin frames,
+sensor timeouts, and UART4 receive-restart failures.
 
-The application defines `INIT`, `CHECKING_HOME`, `IDLE`, `UNLOCKING`, `HOMING`,
-and `FAULT` states. The current square-demo path actively transitions from
-`INIT` to `IDLE`, or to `FAULT` when startup or motion fails; the additional
-states support retained bring-up and homing workflows.
+The application defines `INIT`, `CHECKING_HOME`, `IDLE`, `PAUSED_SKIN`,
+`UNLOCKING`, `HOMING`, and `FAULT` states. The current square-demo path actively
+uses `INIT`, `IDLE`, `PAUSED_SKIN`, and `FAULT`; the additional states support
+retained bring-up and homing workflows.
 
 Current engineering boundaries are intentionally visible:
 
 - servo transport uses bounded, blocking HAL UART calls rather than DMA;
 - the controlled move is synchronous and occupies the foreground application
   until the target settles, aborts, or times out;
+- E-Skin reception is interrupt-driven, but parsing and motion response run in
+  the cooperative foreground control path;
 - IK controls position only and uses four active joints;
 - wrist roll and gripper are fixed for the current demonstration;
 - this firmware is a development and demonstration controller, not a
@@ -372,7 +448,7 @@ Current engineering boundaries are intentionally visible:
 
 | Path | Purpose |
 | --- | --- |
-| `App/Inc`, `App/Src` | Handwritten application, control, kinematics, operations, servo, and UART modules |
+| `App/Inc`, `App/Src` | Handwritten application, E-Skin supervision, control, kinematics, operations, servo, and UART modules |
 | `Core/` | STM32CubeMX-generated startup, peripheral initialization, interrupts, and runtime integration |
 | `Drivers/` | STM32U5 HAL, CMSIS, CMSIS-DSP sources, and Nucleo BSP |
 | `cmake/` | Arm GCC toolchain and generated STM32 target integration |
@@ -385,7 +461,8 @@ Current engineering boundaries are intentionally visible:
 
 Additional details are available in:
 
-- [`docs/hardware.md`](docs/hardware.md) — power, wiring, and hardware status;
+- [`docs/hardware.md`](docs/hardware.md) — power, servo/E-Skin wiring, UART
+  settings, and hardware status;
 - [`docs/kinematics.md`](docs/kinematics.md) — calibration and kinematic model notes;
 - [`docs/servo_bus_bringup.md`](docs/servo_bus_bringup.md) — UART integration and
   real-hardware communication bring-up;
@@ -439,17 +516,22 @@ screen /dev/cu.usbmodemXXXX 115200
 ```
 
 The firmware logs startup progress, application state changes, Cartesian
-targets, motion failures, and per-joint controller telemetry.
+targets, resolved-rate telemetry, E-Skin values and UART diagnostics, pause and
+resume events, and motion failures. Logging uses USART1 independently of the
+LPUART1 servo bus and UART4 E-Skin input.
 
 ## Validation status
 
 - The current Debug target cross-compiles and links successfully with no build
   warnings emitted by the project sources.
-- The latest local Debug build occupies approximately 60 KiB of Flash and
-  2.8 KiB of RAM.
+- The latest local Debug build occupies approximately 76 KiB of Flash and
+  3.0 KiB of RAM.
 - LPUART1 loopback at 1 Mbit/s and the complete
   `STM32 -> Waveshare adapter -> STS3215` communication chain have been validated
   on real hardware.
+- The `ESP32-C6 GPIO16 -> STM32 PC11/UART4_RX` E-Skin path was validated on real
+  hardware on 2026-07-21. Unloaded values around `0.011` and proximity values
+  above `0.8` were observed during that bring-up.
 - A single STS3215 responded successfully to a read-only ping as servo ID 6 at
   1 Mbit/s during the documented initial bring-up.
 - Dedicated home, direct-kinematics, inverse-kinematics, and benchmark routines

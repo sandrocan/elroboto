@@ -70,13 +70,13 @@ typedef struct
     uint8_t within_tolerance;
     uint8_t command_sent;
     uint8_t joint_limit_clamped;
-} Kinematics_ControlTelemetry_t;
+} Kinematics_JointTickPidTelemetry_t;
 
 /**
  * @brief Callback type used to report per-joint controller diagnostics.
  * @param telemetry Controller values for one joint and control cycle.
  */
-typedef void (*Kinematics_ControlTelemetryCallback_t)(const Kinematics_ControlTelemetry_t *telemetry);
+typedef void (*Kinematics_JointTickPidTelemetryCallback_t)(const Kinematics_JointTickPidTelemetry_t *telemetry);
 
 typedef struct
 {
@@ -220,7 +220,8 @@ Servo_Result_t Kinematics_MoveEndEffectorToPosition(const Kinematics_Position_t 
 Servo_Result_t Kinematics_MoveEndEffectorToPositionAndWait(const Kinematics_Position_t *target_position, uint16_t speed, uint8_t acceleration, uint16_t tolerance_ticks, uint32_t timeout_ms, const Kinematics_IkConfig_t *config, Kinematics_AbortCallback_t abort_callback);
 
 /**
- * @brief Sends one full-IK joint target and only observes the resulting TCP error.
+ * @brief Sends one full-IK target, waits for joint standstill, and reports the
+ *        remaining model-based TCP error without applying outer feedback.
  */
 Servo_Result_t Kinematics_MoveEndEffectorToPositionOneShotAndCheck(
     const Kinematics_Position_t *target_position,
@@ -246,7 +247,7 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionOneShotThenResolvedRate(
 );
 
 /**
- * @brief Moves all active joints using one PID controller per joint.
+ * @brief Moves all active joints using one joint-tick PID controller per motor.
  * @param target_position Target Cartesian position in meters.
  * @param speed Servo movement speed.
  * @param acceleration Servo movement acceleration.
@@ -257,7 +258,7 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionOneShotThenResolvedRate(
  * @param telemetry_callback Optional callback for per-joint controller diagnostics.
  * @return Servo-style result code.
  */
-Servo_Result_t Kinematics_MoveEndEffectorToPositionControlled(const Kinematics_Position_t *target_position, uint16_t speed, uint8_t acceleration, uint16_t tolerance_ticks, uint32_t timeout_ms, const Kinematics_IkConfig_t *config, Kinematics_AbortCallback_t abort_callback, Kinematics_ControlTelemetryCallback_t telemetry_callback);
+Servo_Result_t Kinematics_MoveEndEffectorToPositionJointTickPid(const Kinematics_Position_t *target_position, uint16_t speed, uint8_t acceleration, uint16_t tolerance_ticks, uint32_t timeout_ms, const Kinematics_IkConfig_t *config, Kinematics_AbortCallback_t abort_callback, Kinematics_JointTickPidTelemetryCallback_t telemetry_callback);
 
 /**
  * @brief Moves the end effector using one Cartesian feedback step per control cycle.

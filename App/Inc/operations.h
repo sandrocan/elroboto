@@ -53,8 +53,20 @@ typedef struct
 /* Public functions                                                           */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * @brief Initializes a homogeneous transform as the 4x4 identity matrix.
+ * @param out Transform to initialize; NULL is ignored.
+ * @return None.
+ */
 void Operations_SetIdentity(Kinematics_Transform_t *out);
 
+/**
+ * @brief Multiplies two homogeneous transforms.
+ * @param a Left-hand transform.
+ * @param b Right-hand transform.
+ * @param out Product transform.
+ * @return None. Invalid pointers are ignored.
+ */
 void Operations_Multiply(
     const Kinematics_Transform_t *a,
     const Kinematics_Transform_t *b,
@@ -63,6 +75,10 @@ void Operations_Multiply(
 
 /**
  * @brief Builds one local transform using standard sinf/cosf.
+ * @param link Fixed translation and orientation of the link.
+ * @param joint_angle_rad Joint rotation in radians.
+ * @param out Calculated local transform.
+ * @return None.
  */
 void Operations_LinkTransform(
     const Operations_LinkPose_t *link,
@@ -75,6 +91,10 @@ void Operations_LinkTransform(
  *
  * If OPERATIONS_USE_CMSIS_DSP is not defined, this function falls back to
  * standard sinf/cosf so the project stays buildable.
+ * @param link Fixed translation and orientation of the link.
+ * @param joint_angle_rad Joint rotation in radians.
+ * @param out Calculated local transform.
+ * @return None.
  */
 void Operations_LinkTransformFastMath(
     const Operations_LinkPose_t *link,
@@ -82,8 +102,19 @@ void Operations_LinkTransformFastMath(
     Kinematics_Transform_t *out
 );
 
+/**
+ * @brief Rounds a floating-point value to the nearest signed 32-bit integer.
+ * @param value Value to round.
+ * @return Rounded integer value.
+ */
 int32_t Operations_RoundToI32(float value);
 
+/**
+ * @brief Calculates the inverse of a nonsingular 3x3 matrix.
+ * @param in Matrix to invert.
+ * @param out Calculated inverse on success.
+ * @return 1 on success, otherwise 0.
+ */
 uint8_t Operations_Invert3x3(const float in[3][3], float out[3][3]);
 
 #ifdef __cplusplus

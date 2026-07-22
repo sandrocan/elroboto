@@ -5,13 +5,25 @@
 
 #include <stdint.h>
 
-/** Initialize the application state after all required hardware is ready. */
+/**
+ * @brief Initializes the application after all required hardware is ready.
+ * @param servo_uart Initialized UART handle for the servo bus.
+ * @param cell_uart Initialized UART handle for e-skin reception.
+ * @return None. Initializes application state and communication modules.
+ */
 void App_Init(UART_HandleTypeDef *servo_uart, UART_HandleTypeDef *cell_uart);
 
-/** Run one non-blocking application cycle. */
+/**
+ * @brief Runs one non-blocking application state-machine cycle.
+ * @param now_ms Current monotonic HAL time in milliseconds.
+ * @return None. Processes pending inputs and updates application state.
+ */
 void App_Process(uint32_t now_ms);
 
-/** Notify the application about a user-button interrupt. */
+/**
+ * @brief Notifies the application about a user-button interrupt.
+ * @return None. Records a pending button event for deferred processing.
+ */
 void App_OnButtonInterrupt(void);
 
 #endif /* APP_H */

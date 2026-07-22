@@ -36,9 +36,31 @@ typedef struct
     uint8_t last_received_byte;
 } UartCell_Diagnostics_t;
 
+/**
+ * @brief Attaches the CubeMX-created UART handle used for e-skin reception.
+ * @param huart Pointer to the initialized e-skin UART handle.
+ * @return None.
+ */
 void UartCell_AttachHandle(UART_HandleTypeDef *huart);
+
+/**
+ * @brief Starts interrupt-driven e-skin frame reception.
+ * @param value Destination updated with each valid parsed frame.
+ * @return HAL status of the receive-start operation.
+ */
 HAL_StatusTypeDef UartCell_StartReceiveIT(volatile float *value);
+
+/**
+ * @brief Processes a pending e-skin frame outside interrupt context.
+ * @return None. Updates the attached value and diagnostic counters.
+ */
 void UartCell_Process(void);
+
+/**
+ * @brief Copies the current e-skin receive diagnostics.
+ * @param diagnostics Destination structure; NULL is ignored.
+ * @return None.
+ */
 void UartCell_GetDiagnostics(UartCell_Diagnostics_t *diagnostics);
 
 /**

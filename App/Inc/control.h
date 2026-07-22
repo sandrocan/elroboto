@@ -46,6 +46,7 @@ typedef struct
 /**
  * @brief Loads the resolved-rate P-controller default tuning.
  * @param config Configuration structure to initialize; NULL is ignored.
+ * @return None.
  */
 void Control_ResolvedRate_GetDefaultConfig(Control_ResolvedRateConfig_t *config);
 
@@ -68,6 +69,7 @@ Control_Result_t Control_ResolvedRate_CalculateStep(
 /**
  * @brief Resets the dynamic state of one joint-tick PID instance.
  * @param pid Controller state to reset; NULL is accepted and ignored.
+ * @return None.
  */
 void Control_JointTickPid_Reset(Control_JointTickPid_t *pid);
 

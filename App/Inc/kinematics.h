@@ -88,6 +88,11 @@ typedef struct
     uint16_t commanded_position_ticks[KINEMATICS_ACTIVE_JOINT_COUNT];
 } Kinematics_ResolvedRateTelemetry_t;
 
+/**
+ * @brief Callback type used to report one Cartesian controller diagnostic sample.
+ * @param telemetry Controller values for one control cycle.
+ * @return None.
+ */
 typedef void (*Kinematics_ResolvedRateTelemetryCallback_t)(const Kinematics_ResolvedRateTelemetry_t *telemetry);
 
 /**
@@ -179,6 +184,11 @@ Servo_Result_t Kinematics_InversePositionDeg(const Kinematics_Position_t *target
 
 /**
  * @brief Performs exactly one damped-least-squares inverse-kinematics update.
+ * @param target_position Desired XYZ position in meters.
+ * @param current_joint_deg Current active-joint angles in degrees.
+ * @param config IK configuration, or NULL to use defaults.
+ * @param next_joint_deg Joint angles after one bounded IK update.
+ * @return Servo-style argument, calculation, or joint-limit result.
  */
 Servo_Result_t Kinematics_InversePositionDegOneStep(
     const Kinematics_Position_t *target_position,
@@ -215,6 +225,7 @@ Servo_Result_t Kinematics_MoveEndEffectorToPosition(const Kinematics_Position_t 
  * @param tolerance_ticks Allowed target error in servo ticks.
  * @param timeout_ms Maximum wait time in milliseconds per joint.
  * @param config Pointer to the IK configuration, or NULL to use defaults.
+ * @param abort_callback Optional callback used to abort the wait.
  * @return Servo-style result code.
  */
 Servo_Result_t Kinematics_MoveEndEffectorToPositionAndWait(const Kinematics_Position_t *target_position, uint16_t speed, uint8_t acceleration, uint16_t tolerance_ticks, uint32_t timeout_ms, const Kinematics_IkConfig_t *config, Kinematics_AbortCallback_t abort_callback);
@@ -222,6 +233,14 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionAndWait(const Kinematics_Posi
 /**
  * @brief Sends one full-IK target, waits for joint standstill, and reports the
  *        remaining model-based TCP error without applying outer feedback.
+ * @param target_position Desired XYZ position in meters.
+ * @param speed Servo movement speed.
+ * @param acceleration Servo movement acceleration.
+ * @param timeout_ms Maximum movement duration in milliseconds.
+ * @param config IK configuration, or NULL to use defaults.
+ * @param abort_callback Optional callback used to abort the movement.
+ * @param telemetry_callback Optional callback for Cartesian diagnostics.
+ * @return Servo-style result code.
  */
 Servo_Result_t Kinematics_MoveEndEffectorToPositionOneShotAndCheck(
     const Kinematics_Position_t *target_position,
@@ -235,6 +254,14 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionOneShotAndCheck(
 
 /**
  * @brief Performs one smooth full-IK move, then trims the remaining TCP error.
+ * @param target_position Desired XYZ position in meters.
+ * @param speed Servo movement speed.
+ * @param acceleration Servo movement acceleration.
+ * @param timeout_ms Maximum movement duration in milliseconds.
+ * @param config IK configuration, or NULL to use defaults.
+ * @param abort_callback Optional callback used to abort the movement.
+ * @param telemetry_callback Optional callback for Cartesian diagnostics.
+ * @return Servo-style result code.
  */
 Servo_Result_t Kinematics_MoveEndEffectorToPositionOneShotThenResolvedRate(
     const Kinematics_Position_t *target_position,
@@ -262,6 +289,14 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionJointTickPid(const Kinematics
 
 /**
  * @brief Moves the end effector using one Cartesian feedback step per control cycle.
+ * @param target_position Desired XYZ position in meters.
+ * @param speed Maximum servo movement speed.
+ * @param acceleration Servo movement acceleration.
+ * @param timeout_ms Maximum movement duration in milliseconds.
+ * @param config IK configuration, or NULL to use defaults.
+ * @param abort_callback Optional callback used to abort the movement.
+ * @param telemetry_callback Optional callback for Cartesian diagnostics.
+ * @return Servo-style result code.
  */
 Servo_Result_t Kinematics_MoveEndEffectorToPositionResolvedRate(
     const Kinematics_Position_t *target_position,
@@ -306,6 +341,7 @@ Servo_Result_t Kinematics_MoveJointRelativeDeg(uint8_t joint_id, float delta_deg
  * @param acceleration Servo movement acceleration.
  * @param tolerance_ticks Allowed target error in servo ticks.
  * @param timeout_ms Maximum wait time in milliseconds.
+ * @param abort_callback Optional callback used to abort the wait.
  * @return Servo-style result code.
  */
 Servo_Result_t Kinematics_MoveJointRelativeDegAndWait(uint8_t joint_id, float delta_deg, uint16_t speed, uint8_t acceleration, uint16_t tolerance_ticks, uint32_t timeout_ms, Kinematics_AbortCallback_t abort_callback);
@@ -328,6 +364,7 @@ Servo_Result_t Kinematics_MoveJointToAngleDeg(uint8_t joint_id, float angle_deg,
  * @param acceleration Servo movement acceleration.
  * @param tolerance_ticks Allowed target error in servo ticks.
  * @param timeout_ms Maximum wait time in milliseconds.
+ * @param abort_callback Optional callback used to abort the wait.
  * @return Servo-style result code.
  */
 Servo_Result_t Kinematics_MoveJointToAngleDegAndWait(uint8_t joint_id, float angle_deg, uint16_t speed, uint8_t acceleration, uint16_t tolerance_ticks, uint32_t timeout_ms, Kinematics_AbortCallback_t abort_callback);
@@ -335,9 +372,10 @@ Servo_Result_t Kinematics_MoveJointToAngleDegAndWait(uint8_t joint_id, float ang
 /**
  * @brief Polls one joint until its current raw position is close to the target.
  * @param joint_id Servo joint ID.
- * @param target_raw Target raw servo position.
+ * @param target_position_ticks Target raw servo position.
  * @param tolerance_ticks Allowed target error in servo ticks.
  * @param timeout_ms Maximum wait time in milliseconds.
+ * @param abort_callback Optional callback used to abort the wait.
  * @return SERVO_RESULT_OK if the target was reached, otherwise an error code.
  */
 Servo_Result_t Kinematics_WaitUntilJointReached(uint8_t joint_id, uint16_t target_raw, uint16_t tolerance_ticks, uint32_t timeout_ms, Kinematics_AbortCallback_t abort_callback);

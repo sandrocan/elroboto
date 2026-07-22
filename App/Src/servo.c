@@ -142,6 +142,10 @@ static Servo_Result_t Servo_ReadPositionOnce(uint8_t id, uint16_t *position);
 /* Public functions (Descriptions in Header)                                                        */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * @brief Initializes servo-module state and validates the configured joint table.
+ * @return None. Resets response storage and marks the module initialized when valid.
+ */
 void Servo_Init(void)
 {
 	// FOLLOWER CONFIG
@@ -180,6 +184,10 @@ void Servo_Init(void)
     servo_is_initialized = 1U;
 }
 
+/**
+ * @brief Returns the number of configured joints available to the servo module.
+ * @return Configured joint count, or 0 when the module is not initialized.
+ */
 uint8_t Servo_GetJointCount(void)
 {
     if (servo_is_initialized == 0U)
@@ -190,6 +198,11 @@ uint8_t Servo_GetJointCount(void)
     return servo_joint_count;
 }
 
+/**
+ * @brief Looks up a joint configuration by its table index.
+ * @param index Zero-based joint-table index.
+ * @return Matching configuration, or NULL for an invalid index or uninitialized module.
+ */
 const Servo_JointConfig_t *Servo_GetJointConfigByIndex(uint8_t index)
 {
     if (servo_is_initialized == 0U)
@@ -210,6 +223,11 @@ const Servo_JointConfig_t *Servo_GetJointConfigByIndex(uint8_t index)
     return &servo_joint_table[index];
 }
 
+/**
+ * @brief Looks up a joint configuration by servo ID.
+ * @param id Servo ID to find.
+ * @return Matching configuration, or NULL when no configured joint has that ID.
+ */
 const Servo_JointConfig_t *Servo_GetJointConfigById(uint8_t id)
 {
     if (servo_is_initialized == 0U)
@@ -220,6 +238,11 @@ const Servo_JointConfig_t *Servo_GetJointConfigById(uint8_t id)
     return Servo_FindJointById(id);
 }
 
+/**
+ * @brief Sends a ping instruction and validates the servo's status response.
+ * @param id Servo ID to ping.
+ * @return Servo operation result describing transmission, response, or protocol status.
+ */
 Servo_Result_t Servo_Ping(uint8_t id)
 {
     uint8_t packet[SERVO_PING_PACKET_LENGTH];
@@ -282,16 +305,30 @@ Servo_Result_t Servo_Ping(uint8_t id)
     return Servo_CheckStatusPacket(id);
 }
 
+/**
+ * @brief Enables torque for one configured servo joint.
+ * @param id Servo ID whose torque lock is enabled.
+ * @return Servo operation result.
+ */
 Servo_Result_t Servo_LockJoint(uint8_t id)
 {
 	return Servo_WriteByte(id, SERVO_REGISTER_TORQUE_ENABLE, SERVO_TORQUE_ENABLE);
 }
 
+/**
+ * @brief Disables torque for one configured servo joint.
+ * @param id Servo ID whose torque lock is disabled.
+ * @return Servo operation result.
+ */
 Servo_Result_t Servo_UnlockJoint(uint8_t id)
 {
 	return Servo_WriteByte(id, SERVO_REGISTER_TORQUE_ENABLE, SERVO_TORQUE_DISABLE);
 }
 
+/**
+ * @brief Drives all movable configured joints to their home positions and verifies arrival.
+ * @return SERVO_RESULT_OK on success, otherwise the first configuration or bus error.
+ */
 Servo_Result_t Servo_DriveHome(void)
 {
     //Init result
@@ -538,6 +575,12 @@ Servo_Result_t Servo_DriveHome(void)
     return SERVO_RESULT_TARGET_NOT_REACHED;
 }
 
+/**
+ * @brief Reads the current position of a configured joint with retry handling.
+ * @param id Servo ID to query.
+ * @param position Destination for the raw position in ticks.
+ * @return Servo operation result.
+ */
 Servo_Result_t Servo_ReadPosition(uint8_t id, uint16_t *position)
 {
     Servo_Result_t result = SERVO_RESULT_RX_TIMEOUT;
@@ -567,6 +610,12 @@ Servo_Result_t Servo_ReadPosition(uint8_t id, uint16_t *position)
     return result;
 }
 
+/**
+ * @brief Retries a single-servo position read according to the configured retry limit.
+ * @param id Servo ID to query.
+ * @param position Destination for the raw position in ticks.
+ * @return SERVO_RESULT_OK on a valid response, otherwise the final read error.
+ */
 Servo_Result_t Servo_ReadPositionRetry(uint8_t id, uint16_t *position)
 {
     Servo_Result_t result;
@@ -586,6 +635,13 @@ Servo_Result_t Servo_ReadPositionRetry(uint8_t id, uint16_t *position)
     return result;
 }
 
+/**
+ * @brief Reads several servo positions with one synchronous read request.
+ * @param ids Servo IDs in the expected response order.
+ * @param positions Destination array containing one raw position per ID.
+ * @param joint_count Number of entries in ids and positions.
+ * @return Servo operation result.
+ */
 Servo_Result_t Servo_ReadPositionsSync(
     const uint8_t ids[],
     uint16_t positions[],
@@ -707,6 +763,14 @@ Servo_Result_t Servo_ReadPositionsSync(
     return SERVO_RESULT_OK;
 }
 
+/**
+ * @brief Validates and sends one position command to a movable configured joint.
+ * @param id Servo ID to command.
+ * @param position Target position in ticks.
+ * @param speed Requested servo speed value.
+ * @param acceleration Requested servo acceleration value.
+ * @return Servo operation result.
+ */
 Servo_Result_t Servo_WritePosition(uint8_t id, uint16_t position, uint16_t speed, uint8_t acceleration)
 {
     const Servo_JointConfig_t *joint = NULL;
@@ -743,6 +807,15 @@ Servo_Result_t Servo_WritePosition(uint8_t id, uint16_t position, uint16_t speed
     );
 }
 
+/**
+ * @brief Validates and sends multiple joint targets in one synchronous write packet.
+ * @param ids Servo IDs to command.
+ * @param positions Target positions in ticks.
+ * @param joint_count Number of entries in ids and positions.
+ * @param speed Speed value shared by all target joints.
+ * @param acceleration Acceleration value shared by all target joints.
+ * @return Servo operation result.
+ */
 Servo_Result_t Servo_WritePositionsSync(
     const uint8_t ids[],
     const uint16_t positions[],
@@ -843,16 +916,29 @@ Servo_Result_t Servo_WritePositionsSync(
     return SERVO_RESULT_OK;
 }
 
+/**
+ * @brief Returns the internal buffer containing the most recent servo response.
+ * @return Read-only pointer to the last-response buffer.
+ */
 const uint8_t *Servo_GetLastResponse(void)
 {
     return servo_last_response;
 }
 
+/**
+ * @brief Returns the stored length of the most recent servo response.
+ * @return Response length in bytes.
+ */
 uint16_t Servo_GetLastResponseLength(void)
 {
     return servo_last_response_length;
 }
 
+/**
+ * @brief Converts a servo result code to readable diagnostic text.
+ * @param result Result code to convert.
+ * @return Constant string describing result.
+ */
 const char *Servo_ResultToString(Servo_Result_t result)
 {
     //Used to print out the errors based on the enum struct
@@ -916,6 +1002,12 @@ const char *Servo_ResultToString(Servo_Result_t result)
 /* Private functions                                                          */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * @brief Calculates the STS3215 protocol checksum for a byte range.
+ * @param data Bytes included in the checksum.
+ * @param length Number of bytes to process.
+ * @return Calculated checksum byte.
+ */
 static uint8_t Servo_CalculateChecksum(const uint8_t *data, uint16_t length)
 {
     uint16_t sum = 0U;
@@ -928,6 +1020,11 @@ static uint8_t Servo_CalculateChecksum(const uint8_t *data, uint16_t length)
     return (uint8_t)(~sum);
 }
 
+/**
+ * @brief Validates the stored standard status packet for an expected servo ID.
+ * @param expected_id Servo ID required in the response.
+ * @return Servo result describing header, ID, checksum, or device-error validity.
+ */
 static Servo_Result_t Servo_CheckStatusPacket(uint8_t expected_id)
 {
     uint8_t calculated_checksum = 0U;
@@ -959,6 +1056,13 @@ static Servo_Result_t Servo_CheckStatusPacket(uint8_t expected_id)
     return SERVO_RESULT_OK;
 }
 
+/**
+ * @brief Writes one byte to a servo register and validates the response.
+ * @param id Target servo ID.
+ * @param address Register address to write.
+ * @param value Byte value to store.
+ * @return Servo operation result.
+ */
 static Servo_Result_t Servo_WriteByte(uint8_t id, uint8_t address, uint8_t value)
 {
     uint8_t packet[SERVO_WRITE_BYTE_PACKET_LENGTH];
@@ -1025,6 +1129,11 @@ static Servo_Result_t Servo_WriteByte(uint8_t id, uint8_t address, uint8_t value
     return Servo_CheckStatusPacket(id);
 }
 
+/**
+ * @brief Searches the configured joint table for a servo ID.
+ * @param id Servo ID to find.
+ * @return Matching joint configuration, or NULL when not found.
+ */
 static const Servo_JointConfig_t *Servo_FindJointById(uint8_t id)
 {
     if (servo_joint_table == NULL)
@@ -1043,6 +1152,14 @@ static const Servo_JointConfig_t *Servo_FindJointById(uint8_t id)
     return NULL;
 }
 
+/**
+ * @brief Builds and sends an unchecked raw position command to one servo.
+ * @param id Target servo ID.
+ * @param position Target position in ticks.
+ * @param speed Requested speed value.
+ * @param acceleration Requested acceleration value.
+ * @return Servo operation result.
+ */
 static Servo_Result_t Servo_SendPositionCommand(uint8_t id,
                                                 uint16_t position,
                                                 uint16_t speed,
@@ -1115,6 +1232,12 @@ static Servo_Result_t Servo_SendPositionCommand(uint8_t id,
     return SERVO_RESULT_OK;
 }
 
+/**
+ * @brief Performs one position-read transaction without retry handling.
+ * @param id Servo ID to query.
+ * @param position Destination for the raw position in ticks.
+ * @return Servo operation result.
+ */
 static Servo_Result_t Servo_ReadPositionOnce(uint8_t id, uint16_t *position)
 {
     uint8_t packet[SERVO_READ_POSITION_PACKET_LENGTH];
@@ -1213,6 +1336,12 @@ static Servo_Result_t Servo_ReadPositionOnce(uint8_t id, uint16_t *position)
     return SERVO_RESULT_OK;
 }
 
+/**
+ * @brief Calculates the absolute difference between two unsigned 16-bit values.
+ * @param a First value.
+ * @param b Second value.
+ * @return Absolute difference between a and b.
+ */
 static uint16_t Servo_AbsDiffU16(uint16_t a, uint16_t b)
 {
     if (a >= b)

@@ -138,26 +138,53 @@ static Servo_Result_t Kinematics_ForwardPositionDeg(const float joint_deg[KINEMA
 /* Public functions                                                           */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * @brief Converts an angle from degrees to radians.
+ * @param degrees Angle in degrees.
+ * @return Equivalent angle in radians.
+ */
 float Kinematics_DegToRad(float degrees)
 {
     return degrees * (KINEMATICS_PI / 180.0f);
 }
 
+/**
+ * @brief Converts an angle from radians to degrees.
+ * @param radians Angle in radians.
+ * @return Equivalent angle in degrees.
+ */
 float Kinematics_RadToDeg(float radians)
 {
     return radians * (180.0f / KINEMATICS_PI);
 }
 
+/**
+ * @brief Converts a relative joint angle to a signed servo-tick difference.
+ * @param degrees Relative angle in degrees.
+ * @return Rounded relative encoder difference in ticks.
+ */
 int32_t Kinematics_DegToTickDelta(float degrees)
 {
     return Operations_RoundToI32(degrees * KINEMATICS_TICKS_PER_DEG);
 }
 
+/**
+ * @brief Converts a signed servo-tick difference to a relative joint angle.
+ * @param ticks Relative encoder difference in ticks.
+ * @return Relative angle in degrees.
+ */
 float Kinematics_TickDeltaToDeg(int32_t ticks)
 {
     return ((float)ticks) * KINEMATICS_DEG_PER_TICK;
 }
 
+/**
+ * @brief Converts one joint's raw servo position to its calibrated angle.
+ * @param joint_id Configured servo joint ID.
+ * @param raw_position Raw encoder position in ticks.
+ * @param angle_deg Calculated joint angle in degrees.
+ * @return Servo-style argument, configuration, or range result.
+ */
 Servo_Result_t Kinematics_RawToAngleDeg(uint8_t joint_id, uint16_t raw_position, float *angle_deg)
 {
     const Servo_JointConfig_t *joint;
@@ -191,6 +218,13 @@ Servo_Result_t Kinematics_RawToAngleDeg(uint8_t joint_id, uint16_t raw_position,
     return SERVO_RESULT_OK;
 }
 
+/**
+ * @brief Converts a calibrated joint angle to its raw servo position.
+ * @param joint_id Configured servo joint ID.
+ * @param angle_deg Joint angle in degrees.
+ * @param raw_position Calculated encoder target in ticks.
+ * @return Servo-style argument, configuration, or range result.
+ */
 Servo_Result_t Kinematics_AngleDegToRaw(uint8_t joint_id, float angle_deg, uint16_t *raw_position)
 {
     const Servo_JointConfig_t *joint;
@@ -232,6 +266,12 @@ Servo_Result_t Kinematics_AngleDegToRaw(uint8_t joint_id, float angle_deg, uint1
     return SERVO_RESULT_OK;
 }
 
+/**
+ * @brief Calculates the end-effector transform from active-joint angles in radians.
+ * @param joint_rad Angles for active joints 1 through 4 in radians.
+ * @param transform Calculated homogeneous end-effector transform.
+ * @return Servo-style argument or calculation result.
+ */
 Servo_Result_t Kinematics_ForwardRad(const float joint_rad[KINEMATICS_ACTIVE_JOINT_COUNT], Kinematics_Transform_t *transform)
 {
     //Init
@@ -278,6 +318,12 @@ Servo_Result_t Kinematics_ForwardRad(const float joint_rad[KINEMATICS_ACTIVE_JOI
     return SERVO_RESULT_OK;
 }
 
+/**
+ * @brief Calculates the end-effector transform from active-joint angles in degrees.
+ * @param joint_deg Angles for active joints 1 through 4 in degrees.
+ * @param transform Calculated homogeneous end-effector transform.
+ * @return Servo-style argument or calculation result.
+ */
 Servo_Result_t Kinematics_ForwardDeg(const float joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT], Kinematics_Transform_t *transform)
 {
     float joint_rad[KINEMATICS_ACTIVE_JOINT_COUNT];
@@ -296,6 +342,12 @@ Servo_Result_t Kinematics_ForwardDeg(const float joint_deg[KINEMATICS_ACTIVE_JOI
     return Kinematics_ForwardRad(joint_rad, transform);
 }
 
+/**
+ * @brief Extracts Cartesian XYZ translation from a homogeneous transform.
+ * @param transform Transform containing the Cartesian translation.
+ * @param position Extracted position in meters.
+ * @return SERVO_RESULT_OK, or SERVO_RESULT_NULL_POINTER for invalid input.
+ */
 Servo_Result_t Kinematics_GetPosition(const Kinematics_Transform_t *transform, Kinematics_Position_t *position)
 {
     if ((transform == NULL) || (position == NULL))
@@ -310,6 +362,11 @@ Servo_Result_t Kinematics_GetPosition(const Kinematics_Transform_t *transform, K
     return SERVO_RESULT_OK;
 }
 
+/**
+ * @brief Loads the default numerical inverse-kinematics parameters.
+ * @param config Configuration structure to initialize; NULL is ignored.
+ * @return None.
+ */
 void Kinematics_GetDefaultIkConfig(Kinematics_IkConfig_t *config)
 {
     if (config == NULL)
@@ -324,6 +381,14 @@ void Kinematics_GetDefaultIkConfig(Kinematics_IkConfig_t *config)
     config->max_step_deg = KINEMATICS_IK_DEFAULT_MAX_STEP_DEG;
 }
 
+/**
+ * @brief Solves active-joint angles for a Cartesian target with numerical IK.
+ * @param target_position Desired XYZ position in meters.
+ * @param seed_joint_deg Initial active-joint estimate in degrees.
+ * @param config IK configuration, or NULL to use defaults.
+ * @param result_joint_deg Solved active-joint angles in degrees.
+ * @return Servo-style argument, convergence, or joint-limit result.
+ */
 Servo_Result_t Kinematics_InversePositionDeg(const Kinematics_Position_t *target_position, const float seed_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT], const Kinematics_IkConfig_t *config, float result_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT])
 {
     //Init
@@ -554,6 +619,14 @@ Servo_Result_t Kinematics_InversePositionDeg(const Kinematics_Position_t *target
     return SERVO_RESULT_TARGET_NOT_REACHED;
 }
 
+/**
+ * @brief Performs one damped-least-squares inverse-kinematics update.
+ * @param target_position Desired XYZ position in meters.
+ * @param current_joint_deg Current active-joint angles in degrees.
+ * @param config IK configuration, or NULL to use defaults.
+ * @param next_joint_deg Joint angles after one bounded IK update.
+ * @return Servo-style argument, calculation, or joint-limit result.
+ */
 Servo_Result_t Kinematics_InversePositionDegOneStep(
     const Kinematics_Position_t *target_position,
     const float current_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT],
@@ -731,6 +804,14 @@ Servo_Result_t Kinematics_InversePositionDegOneStep(
     return SERVO_RESULT_OK;
 }
 
+/**
+ * @brief Solves a Cartesian target and converts the active-joint solution to servo ticks.
+ * @param target_position Desired XYZ position in meters.
+ * @param seed_joint_deg Initial active-joint estimate in degrees.
+ * @param config IK configuration, or NULL to use defaults.
+ * @param result_raw Solved raw targets for all active joints.
+ * @return Servo-style argument, IK, conversion, or joint-limit result.
+ */
 Servo_Result_t Kinematics_InversePositionRaw(const Kinematics_Position_t *target_position, const float seed_joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT], const Kinematics_IkConfig_t *config, uint16_t result_raw[KINEMATICS_ACTIVE_JOINT_COUNT])
 {
     Servo_Result_t result;
@@ -760,6 +841,14 @@ Servo_Result_t Kinematics_InversePositionRaw(const Kinematics_Position_t *target
     return SERVO_RESULT_OK;
 }
 
+/**
+ * @brief Solves and sends one synchronized active-joint target for a Cartesian position.
+ * @param target_position Desired XYZ position in meters.
+ * @param speed Servo speed value shared by active joints.
+ * @param acceleration Servo acceleration value shared by active joints.
+ * @param config IK configuration, or NULL to use defaults.
+ * @return Servo-style read, IK, conversion, or command result.
+ */
 Servo_Result_t Kinematics_MoveEndEffectorToPosition(const Kinematics_Position_t *target_position, uint16_t speed, uint8_t acceleration, const Kinematics_IkConfig_t *config)
 {
     //Init
@@ -799,6 +888,17 @@ Servo_Result_t Kinematics_MoveEndEffectorToPosition(const Kinematics_Position_t 
     return SERVO_RESULT_OK;
 }
 
+/**
+ * @brief Sends a Cartesian target and waits until all active joints reach it.
+ * @param target_position Desired XYZ position in meters.
+ * @param speed Servo speed value shared by active joints.
+ * @param acceleration Servo acceleration value shared by active joints.
+ * @param tolerance_ticks Maximum accepted position error per joint.
+ * @param timeout_ms Maximum wait duration in milliseconds.
+ * @param config IK configuration, or NULL to use defaults.
+ * @param abort_callback Optional callback that can abort the wait.
+ * @return Servo-style motion, timeout, or abort result.
+ */
 Servo_Result_t Kinematics_MoveEndEffectorToPositionAndWait(const Kinematics_Position_t *target_position, uint16_t speed, uint8_t acceleration, uint16_t tolerance_ticks, uint32_t timeout_ms, const Kinematics_IkConfig_t *config, Kinematics_AbortCallback_t abort_callback)
 {
     //Init
@@ -865,6 +965,17 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionAndWait(const Kinematics_Posi
     return SERVO_RESULT_OK;
 }
 
+/**
+ * @brief Executes one full-IK move and reports the remaining model-based TCP error.
+ * @param target_position Desired XYZ position in meters.
+ * @param speed Servo speed value shared by active joints.
+ * @param acceleration Servo acceleration value shared by active joints.
+ * @param timeout_ms Maximum movement duration in milliseconds.
+ * @param config IK configuration, or NULL to use defaults.
+ * @param abort_callback Optional callback that can abort the motion.
+ * @param telemetry_callback Optional destination for Cartesian diagnostic samples.
+ * @return Servo-style motion, timeout, convergence, or abort result.
+ */
 Servo_Result_t Kinematics_MoveEndEffectorToPositionOneShotAndCheck(
     const Kinematics_Position_t *target_position,
     uint16_t speed,
@@ -1082,6 +1193,17 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionOneShotAndCheck(
     return SERVO_RESULT_TARGET_NOT_REACHED;
 }
 
+/**
+ * @brief Executes a full-IK move and trims residual Cartesian error with resolved-rate control.
+ * @param target_position Desired XYZ position in meters.
+ * @param speed Servo speed value shared by active joints.
+ * @param acceleration Servo acceleration value shared by active joints.
+ * @param timeout_ms Maximum total movement duration in milliseconds.
+ * @param config IK configuration, or NULL to use defaults.
+ * @param abort_callback Optional callback that can abort the motion.
+ * @param telemetry_callback Optional destination for Cartesian diagnostic samples.
+ * @return Servo-style motion, timeout, convergence, or abort result.
+ */
 Servo_Result_t Kinematics_MoveEndEffectorToPositionOneShotThenResolvedRate(
     const Kinematics_Position_t *target_position,
     uint16_t speed,
@@ -1264,6 +1386,18 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionOneShotThenResolvedRate(
 }
 
 
+/**
+ * @brief Moves to a Cartesian target using one joint-tick PID controller per active joint.
+ * @param target_position Desired XYZ position in meters.
+ * @param speed Maximum servo speed value.
+ * @param acceleration Servo acceleration value.
+ * @param tolerance_ticks Accepted final position error per joint.
+ * @param timeout_ms Maximum movement duration in milliseconds.
+ * @param config IK configuration, or NULL to use defaults.
+ * @param abort_callback Optional callback that can abort the motion.
+ * @param telemetry_callback Optional destination for per-joint diagnostic samples.
+ * @return Servo-style motion, timeout, control, or abort result.
+ */
 Servo_Result_t Kinematics_MoveEndEffectorToPositionJointTickPid(const Kinematics_Position_t *target_position, uint16_t speed, uint8_t acceleration, uint16_t tolerance_ticks, uint32_t timeout_ms, const Kinematics_IkConfig_t *config, Kinematics_AbortCallback_t abort_callback, Kinematics_JointTickPidTelemetryCallback_t telemetry_callback)
 {
     //Init
@@ -1461,6 +1595,17 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionJointTickPid(const Kinematics
     return SERVO_RESULT_TARGET_NOT_REACHED;
 }
 
+/**
+ * @brief Moves toward a Cartesian target with one resolved-rate feedback step per cycle.
+ * @param target_position Desired XYZ position in meters.
+ * @param speed Maximum servo speed value.
+ * @param acceleration Servo acceleration value.
+ * @param timeout_ms Maximum movement duration in milliseconds.
+ * @param config IK configuration, or NULL to use defaults.
+ * @param abort_callback Optional callback that can abort the motion.
+ * @param telemetry_callback Optional destination for Cartesian diagnostic samples.
+ * @return Servo-style motion, timeout, control, or abort result.
+ */
 Servo_Result_t Kinematics_MoveEndEffectorToPositionResolvedRate(
     const Kinematics_Position_t *target_position,
     uint16_t speed,
@@ -1725,6 +1870,11 @@ Servo_Result_t Kinematics_MoveEndEffectorToPositionResolvedRate(
     return SERVO_RESULT_TARGET_NOT_REACHED;
 }
 
+/**
+ * @brief Reads raw active-joint positions and converts them to calibrated angles.
+ * @param joint_deg Current angles for active joints 1 through 4 in degrees.
+ * @return Servo-style read or conversion result.
+ */
 Servo_Result_t Kinematics_ReadCurrentJointAnglesDeg(float joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT])
 {
     Servo_Result_t result;
@@ -1756,6 +1906,11 @@ Servo_Result_t Kinematics_ReadCurrentJointAnglesDeg(float joint_deg[KINEMATICS_A
     return SERVO_RESULT_OK;
 }
 
+/**
+ * @brief Reads active-joint angles and calculates the current end-effector transform.
+ * @param transform Current homogeneous end-effector transform.
+ * @return Servo-style read, conversion, or forward-kinematics result.
+ */
 Servo_Result_t Kinematics_ReadCurrentEndEffector(Kinematics_Transform_t *transform)
 {
     Servo_Result_t result;
@@ -1776,6 +1931,14 @@ Servo_Result_t Kinematics_ReadCurrentEndEffector(Kinematics_Transform_t *transfo
     return Kinematics_ForwardDeg(joint_deg, transform);
 }
 
+/**
+ * @brief Commands one movable joint by a relative calibrated angle.
+ * @param joint_id Configured servo joint ID.
+ * @param delta_deg Requested relative movement in degrees.
+ * @param speed Servo speed value.
+ * @param acceleration Servo acceleration value.
+ * @return Servo-style read, conversion, range, or command result.
+ */
 Servo_Result_t Kinematics_MoveJointRelativeDeg(uint8_t joint_id, float delta_deg, uint16_t speed, uint8_t acceleration)
 {
     Servo_Result_t result;
@@ -1790,6 +1953,17 @@ Servo_Result_t Kinematics_MoveJointRelativeDeg(uint8_t joint_id, float delta_deg
     return Servo_WritePosition(joint_id, target_raw, speed, acceleration);
 }
 
+/**
+ * @brief Commands a relative joint movement and waits for target arrival.
+ * @param joint_id Configured servo joint ID.
+ * @param delta_deg Requested relative movement in degrees.
+ * @param speed Servo speed value.
+ * @param acceleration Servo acceleration value.
+ * @param tolerance_ticks Maximum accepted position error.
+ * @param timeout_ms Maximum wait duration in milliseconds.
+ * @param abort_callback Optional callback that can abort the wait.
+ * @return Servo-style motion, timeout, or abort result.
+ */
 Servo_Result_t Kinematics_MoveJointRelativeDegAndWait(uint8_t joint_id, float delta_deg, uint16_t speed, uint8_t acceleration, uint16_t tolerance_ticks, uint32_t timeout_ms, Kinematics_AbortCallback_t abort_callback)
 {
     Servo_Result_t result;
@@ -1813,6 +1987,14 @@ Servo_Result_t Kinematics_MoveJointRelativeDegAndWait(uint8_t joint_id, float de
     return Kinematics_WaitUntilJointReached(joint_id, target_raw, tolerance_ticks, timeout_ms, abort_callback);
 }
 
+/**
+ * @brief Commands one movable joint to an angle relative to its home position.
+ * @param joint_id Configured servo joint ID.
+ * @param angle_deg Target angle relative to home in degrees.
+ * @param speed Servo speed value.
+ * @param acceleration Servo acceleration value.
+ * @return Servo-style conversion, range, or command result.
+ */
 Servo_Result_t Kinematics_MoveJointToAngleDeg(uint8_t joint_id, float angle_deg, uint16_t speed, uint8_t acceleration)
 {
     Servo_Result_t result;
@@ -1829,6 +2011,17 @@ Servo_Result_t Kinematics_MoveJointToAngleDeg(uint8_t joint_id, float angle_deg,
     return Servo_WritePosition(joint_id, target_raw, speed, acceleration);
 }
 
+/**
+ * @brief Commands an absolute calibrated joint angle and waits for target arrival.
+ * @param joint_id Configured servo joint ID.
+ * @param angle_deg Target angle relative to home in degrees.
+ * @param speed Servo speed value.
+ * @param acceleration Servo acceleration value.
+ * @param tolerance_ticks Maximum accepted position error.
+ * @param timeout_ms Maximum wait duration in milliseconds.
+ * @param abort_callback Optional callback that can abort the wait.
+ * @return Servo-style motion, timeout, or abort result.
+ */
 Servo_Result_t Kinematics_MoveJointToAngleDegAndWait(uint8_t joint_id, float angle_deg, uint16_t speed, uint8_t acceleration, uint16_t tolerance_ticks, uint32_t timeout_ms, Kinematics_AbortCallback_t abort_callback)
 {
     Servo_Result_t result;
@@ -1852,6 +2045,15 @@ Servo_Result_t Kinematics_MoveJointToAngleDegAndWait(uint8_t joint_id, float ang
     return Kinematics_WaitUntilJointReached(joint_id, target_raw, tolerance_ticks, timeout_ms, abort_callback);
 }
 
+/**
+ * @brief Polls one joint until it reaches a raw target or the wait terminates.
+ * @param joint_id Configured servo joint ID.
+ * @param target_position_ticks Target raw position in ticks.
+ * @param tolerance_ticks Maximum accepted position error.
+ * @param timeout_ms Maximum wait duration in milliseconds.
+ * @param abort_callback Optional callback that can abort the wait.
+ * @return SERVO_RESULT_OK on arrival, otherwise a read, timeout, or abort result.
+ */
 Servo_Result_t Kinematics_WaitUntilJointReached(uint8_t joint_id, uint16_t target_position_ticks, uint16_t tolerance_ticks, uint32_t timeout_ms, Kinematics_AbortCallback_t abort_callback)
 {
     //Init
@@ -1905,6 +2107,12 @@ Servo_Result_t Kinematics_WaitUntilJointReached(uint8_t joint_id, uint16_t targe
 /* Private functions                                                          */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * @brief Returns the configured raw-tick direction multiplier for an active joint.
+ * @param joint_id Configured servo joint ID.
+ * @param direction Direction multiplier, either -1 or 1.
+ * @return Servo-style configuration or argument result.
+ */
 static Servo_Result_t Kinematics_GetJointDirection(uint8_t joint_id, int8_t *direction)
 {
     if (direction == NULL)
@@ -1921,6 +2129,13 @@ static Servo_Result_t Kinematics_GetJointDirection(uint8_t joint_id, int8_t *dir
     return SERVO_RESULT_OK;
 }
 
+/**
+ * @brief Calculates a bounded raw servo target for a relative joint movement.
+ * @param joint_id Configured servo joint ID.
+ * @param delta_deg Requested relative movement in degrees.
+ * @param target_raw Calculated target position in ticks.
+ * @return Servo-style read, conversion, configuration, or range result.
+ */
 static Servo_Result_t Kinematics_CalculateRelativeTargetRaw(uint8_t joint_id, float delta_deg, uint16_t *target_raw)
 {
     const Servo_JointConfig_t *joint;
@@ -1971,6 +2186,13 @@ static Servo_Result_t Kinematics_CalculateRelativeTargetRaw(uint8_t joint_id, fl
     return SERVO_RESULT_OK;
 }
 
+/**
+ * @brief Converts a configured joint's raw limits to calibrated angular limits.
+ * @param joint_id Configured servo joint ID.
+ * @param min_deg Minimum allowed joint angle in degrees.
+ * @param max_deg Maximum allowed joint angle in degrees.
+ * @return Servo-style configuration, conversion, or argument result.
+ */
 static Servo_Result_t Kinematics_GetJointLimitsDeg(uint8_t joint_id, float *min_deg, float *max_deg)
 {
     const Servo_JointConfig_t *joint;
@@ -2021,6 +2243,13 @@ static Servo_Result_t Kinematics_GetJointLimitsDeg(uint8_t joint_id, float *min_
     return SERVO_RESULT_OK;
 }
 
+/**
+ * @brief Clamps a floating-point value to an inclusive interval.
+ * @param value Value to clamp; NULL is ignored.
+ * @param min_value Minimum allowed value.
+ * @param max_value Maximum allowed value.
+ * @return None.
+ */
 static void Kinematics_ClampFloat(float *value, float min_value, float max_value)
 {
     if (value == NULL)
@@ -2038,6 +2267,12 @@ static void Kinematics_ClampFloat(float *value, float min_value, float max_value
     }
 }
 
+/**
+ * @brief Calculates the squared Cartesian distance between two positions.
+ * @param a First XYZ position in meters.
+ * @param b Second XYZ position in meters.
+ * @return Squared distance in square meters, or 0 for invalid pointers.
+ */
 static float Kinematics_PositionDistanceSquared(const Kinematics_Position_t *a, const Kinematics_Position_t *b)
 {
     float dx;
@@ -2056,6 +2291,12 @@ static float Kinematics_PositionDistanceSquared(const Kinematics_Position_t *a, 
     return (dx * dx) + (dy * dy) + (dz * dz);
 }
 
+/**
+ * @brief Calculates only the end-effector position from joint angles in degrees.
+ * @param joint_deg Angles for active joints 1 through 4 in degrees.
+ * @param position Calculated XYZ position in meters.
+ * @return Servo-style forward-kinematics or argument result.
+ */
 static Servo_Result_t Kinematics_ForwardPositionDeg(const float joint_deg[KINEMATICS_ACTIVE_JOINT_COUNT], Kinematics_Position_t *position)
 {
     Servo_Result_t result;

@@ -37,6 +37,11 @@ static float Operations_Cos(float x, uint8_t use_fast_math);
 /* Public functions                                                           */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * @brief Initializes a homogeneous transform as the 4x4 identity matrix.
+ * @param out Transform to initialize; NULL is ignored.
+ * @return None. Writes the identity matrix to out.
+ */
 void Operations_SetIdentity(Kinematics_Transform_t *out)
 {
     if (out == NULL)
@@ -65,6 +70,13 @@ void Operations_SetIdentity(Kinematics_Transform_t *out)
     out->m[3][3] = 1.0f;
 }
 
+/**
+ * @brief Multiplies two homogeneous transforms.
+ * @param a Left-hand transform.
+ * @param b Right-hand transform.
+ * @param out Product transform; no output is written for invalid pointers.
+ * @return None.
+ */
 void Operations_Multiply(
     const Kinematics_Transform_t *a,
     const Kinematics_Transform_t *b,
@@ -83,6 +95,13 @@ void Operations_Multiply(
     Operations_MultiplyHomogeneousInternal(a->m, b->m, out->m);
 }
 
+/**
+ * @brief Builds a local link transform using standard trigonometric functions.
+ * @param link Fixed translation and orientation of the link.
+ * @param joint_angle_rad Joint rotation in radians.
+ * @param out Calculated local homogeneous transform.
+ * @return None.
+ */
 void Operations_LinkTransform(
     const Operations_LinkPose_t *link,
     float joint_angle_rad,
@@ -96,6 +115,13 @@ void Operations_LinkTransform(
     Operations_LinkTransformInternal(link, joint_angle_rad, out, 0U);
 }
 
+/**
+ * @brief Builds a local link transform using ARM FastMath when available.
+ * @param link Fixed translation and orientation of the link.
+ * @param joint_angle_rad Joint rotation in radians.
+ * @param out Calculated local homogeneous transform.
+ * @return None.
+ */
 void Operations_LinkTransformFastMath(
     const Operations_LinkPose_t *link,
     float joint_angle_rad,
@@ -110,6 +136,11 @@ void Operations_LinkTransformFastMath(
     Operations_LinkTransformInternal(link, joint_angle_rad, out, 1U);
 }
 
+/**
+ * @brief Rounds a floating-point value to the nearest signed 32-bit integer.
+ * @param value Value to round.
+ * @return Rounded integer value.
+ */
 int32_t Operations_RoundToI32(float value)
 {
     if (value >= 0.0f)
@@ -120,6 +151,12 @@ int32_t Operations_RoundToI32(float value)
     return (int32_t)(value - 0.5f);
 }
 
+/**
+ * @brief Calculates the inverse of a nonsingular 3x3 matrix.
+ * @param in Matrix to invert.
+ * @param out Calculated inverse when the operation succeeds.
+ * @return 1 on success, or 0 for NULL pointers or a near-singular matrix.
+ */
 uint8_t Operations_Invert3x3(const float in[3][3], float out[3][3])
 {
     float det;
@@ -159,6 +196,14 @@ uint8_t Operations_Invert3x3(const float in[3][3], float out[3][3])
 /* Private functions                                                          */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * @brief Implements local link-transform construction for both trigonometric backends.
+ * @param link Fixed translation and orientation of the link.
+ * @param joint_angle_rad Joint rotation in radians.
+ * @param out Calculated local homogeneous transform.
+ * @param use_fast_math Nonzero to request the FastMath backend.
+ * @return None.
+ */
 static void Operations_LinkTransformInternal(
     const Operations_LinkPose_t *link,
     float joint_angle_rad,
@@ -245,6 +290,12 @@ static void Operations_LinkTransformInternal(
     out->m[3][3] = 1.0f;
 }
 
+/**
+ * @brief Evaluates sine with the selected standard or FastMath backend.
+ * @param x Angle in radians.
+ * @param use_fast_math Nonzero to request the FastMath backend.
+ * @return Sine of x.
+ */
 static float Operations_Sin(float x, uint8_t use_fast_math)
 {
 #if defined(OPERATIONS_USE_CMSIS_DSP)
@@ -259,6 +310,12 @@ static float Operations_Sin(float x, uint8_t use_fast_math)
     return sinf(x);
 }
 
+/**
+ * @brief Evaluates cosine with the selected standard or FastMath backend.
+ * @param x Angle in radians.
+ * @param use_fast_math Nonzero to request the FastMath backend.
+ * @return Cosine of x.
+ */
 static float Operations_Cos(float x, uint8_t use_fast_math)
 {
 #if defined(OPERATIONS_USE_CMSIS_DSP)
@@ -273,6 +330,13 @@ static float Operations_Cos(float x, uint8_t use_fast_math)
     return cosf(x);
 }
 
+/**
+ * @brief Multiplies homogeneous matrix data with an alias-safe temporary buffer.
+ * @param A Left-hand 4x4 homogeneous matrix.
+ * @param B Right-hand 4x4 homogeneous matrix.
+ * @param C Product matrix.
+ * @return None.
+ */
 static void Operations_MultiplyHomogeneousInternal(
     const float A[KINEMATICS_MATRIX_SIZE][KINEMATICS_MATRIX_SIZE],
     const float B[KINEMATICS_MATRIX_SIZE][KINEMATICS_MATRIX_SIZE],
@@ -315,6 +379,12 @@ static void Operations_MultiplyHomogeneousInternal(
     Operations_Mat4Copy(tmp, C);
 }
 
+/**
+ * @brief Copies all elements of one 4x4 matrix to another.
+ * @param src Source matrix.
+ * @param dst Destination matrix.
+ * @return None.
+ */
 static void Operations_Mat4Copy(
     const float src[KINEMATICS_MATRIX_SIZE][KINEMATICS_MATRIX_SIZE],
     float dst[KINEMATICS_MATRIX_SIZE][KINEMATICS_MATRIX_SIZE]

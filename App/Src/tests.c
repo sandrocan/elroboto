@@ -50,6 +50,10 @@
 /* Public test functions                                                      */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * @brief Verifies configured home positions before and after driving the arm home.
+ * @return SERVO_RESULT_OK when every active joint reaches home, otherwise a servo error.
+ */
 Servo_Result_t Tests_HomeTest(void)
 {
     Servo_Result_t result;
@@ -229,6 +233,10 @@ Servo_Result_t Tests_HomeTest(void)
     return SERVO_RESULT_OK;
 }
 
+/**
+ * @brief Exercises forward kinematics by moving each active joint and reporting the TCP pose.
+ * @return SERVO_RESULT_OK when all movements and calculations succeed, otherwise an error.
+ */
 Servo_Result_t Tests_DkTest(void)
 {
     Servo_Result_t result;
@@ -418,6 +426,10 @@ Servo_Result_t Tests_DkTest(void)
     return SERVO_RESULT_OK;
 }
 
+/**
+ * @brief Exercises inverse kinematics with Cartesian movements along the X, Y, and Z axes.
+ * @return SERVO_RESULT_OK when all target moves succeed, otherwise a servo or kinematic error.
+ */
 Servo_Result_t Tests_IkTest(void)
 {
     //Init

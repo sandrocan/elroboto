@@ -85,9 +85,12 @@ static Servo_Result_t app_hold_active_joints(void);
 /* -------------------------------------------------------------------------- */
 
 
-
-
-
+/**
+ * @brief Initializes the application state, UART paths, servo module, and startup safety checks.
+ * @param servo_uart Initialized UART handle for the servo bus.
+ * @param cell_uart Initialized UART handle for e-skin data reception.
+ * @return None. Updates global application state and may latch APP_STATE_FAULT on failure.
+ */
 void App_Init(UART_HandleTypeDef *servo_uart, UART_HandleTypeDef *cell_uart)
 {
     HAL_StatusTypeDef cell_rx_status;
@@ -219,6 +222,11 @@ void App_Init(UART_HandleTypeDef *servo_uart, UART_HandleTypeDef *cell_uart)
     app_set_state(APP_STATE_IDLE);
 }
 
+/**
+ * @brief Executes one non-blocking application state-machine cycle.
+ * @param now_ms Current monotonic HAL time in milliseconds.
+ * @return None. Processes inputs and may issue motion commands or change the application state.
+ */
 void App_Process(uint32_t now_ms)
 {
     static uint8_t tcp_start_saved = 0U;
@@ -450,17 +458,31 @@ void App_Process(uint32_t now_ms)
 
 }
 
+/**
+ * @brief Records a pending user-button event for deferred processing.
+ * @return None. Sets the interrupt-safe button_event_pending flag.
+ */
 void App_OnButtonInterrupt(void)
 {
   button_event_pending = 1U;
 }
 
+/**
+ * @brief Changes the current application state and logs its readable name.
+ * @param next_state State to enter.
+ * @return None. Updates app_state and writes a diagnostic message.
+ */
 static void app_set_state(App_State next_state)
 {
   app_state = next_state;
   printf("App state: %s\r\n", app_state_to_string(next_state));
 }
 
+/**
+ * @brief Converts an application state value to readable diagnostic text.
+ * @param state Application state to convert.
+ * @return Constant state name, or "UNKNOWN" for an unsupported value.
+ */
 static const char *app_state_to_string(App_State state)
 {
   switch (state)
@@ -491,6 +513,11 @@ static const char *app_state_to_string(App_State state)
   }
 }
 
+/**
+ * @brief Debounces and handles a pending user-button stop request.
+ * @param now_ms Current monotonic HAL time in milliseconds.
+ * @return None. Disables motion, unlocks joints, and latches a fault state when handled.
+ */
 static void app_process_button(uint32_t now_ms)
 {
     Servo_Result_t result;
@@ -530,6 +557,10 @@ static void app_process_button(uint32_t now_ms)
     app_set_state(APP_STATE_FAULT);
 }
 
+/**
+ * @brief Disables torque for every configured joint while preserving the first error.
+ * @return SERVO_RESULT_OK when all joints unlock, otherwise the first servo error.
+ */
 static Servo_Result_t app_unlock_all_joints(void)
 {
   const uint8_t joint_count = Servo_GetJointCount();
@@ -573,6 +604,10 @@ static Servo_Result_t app_unlock_all_joints(void)
   return first_error;
 }
 
+/**
+ * @brief Processes safety inputs and determines whether the current motion must abort.
+ * @return 1 when motion is disabled or a safety condition is active, otherwise 0.
+ */
 static uint8_t app_motion_abort_requested(void)
 {
     uint32_t now_ms;
@@ -618,6 +653,11 @@ static uint8_t app_motion_abort_requested(void)
     return 0U;
 }
 
+/**
+ * @brief Waits for the first valid e-skin sample within a bounded startup interval.
+ * @param timeout_ms Maximum wait duration in milliseconds.
+ * @return 1 when a valid sample arrives, otherwise 0 after the timeout.
+ */
 static uint8_t app_wait_for_skin_sample(uint32_t timeout_ms)
 {
     uint32_t start_ms = HAL_GetTick();
@@ -640,6 +680,11 @@ static uint8_t app_wait_for_skin_sample(uint32_t timeout_ms)
     return 0U;
 }
 
+/**
+ * @brief Pauses motion and commands the active joints to hold after an e-skin trigger.
+ * @param now_ms Current monotonic HAL time in milliseconds for diagnostics.
+ * @return None. Updates pause, motion-enable, and application-state variables.
+ */
 static void app_pause_for_skin(uint32_t now_ms)
 {
     Servo_Result_t hold_result;
@@ -677,6 +722,11 @@ static void app_pause_for_skin(uint32_t now_ms)
     }
 }
 
+/**
+ * @brief Monitors a skin-triggered pause and resumes only after a stable clear interval.
+ * @param now_ms Current monotonic HAL time in milliseconds.
+ * @return None. May clear the pause, resume motion, or latch a sensor fault.
+ */
 static void app_update_skin_pause(uint32_t now_ms)
 {
     UartCell_Diagnostics_t diagnostics;
@@ -733,6 +783,12 @@ static void app_update_skin_pause(uint32_t now_ms)
     }
 }
 
+/**
+ * @brief Latches an e-skin safety fault and attempts to hold all active joints.
+ * @param reason Readable reason included in the diagnostic output.
+ * @param now_ms Current monotonic HAL time in milliseconds.
+ * @return None. Disables motion and transitions the application to APP_STATE_FAULT.
+ */
 static void app_latch_skin_fault(const char *reason, uint32_t now_ms)
 {
     Servo_Result_t hold_result = SERVO_RESULT_OK;
@@ -778,6 +834,10 @@ static void app_latch_skin_fault(const char *reason, uint32_t now_ms)
     app_set_state(APP_STATE_FAULT);
 }
 
+/**
+ * @brief Reads each active joint and commands it to hold its measured position.
+ * @return SERVO_RESULT_OK on success, otherwise the first read or write error.
+ */
 static Servo_Result_t app_hold_active_joints(void)
 {
     Servo_Result_t first_error = SERVO_RESULT_OK;
@@ -812,6 +872,11 @@ static Servo_Result_t app_hold_active_joints(void)
     return first_error;
 }
 
+/**
+ * @brief Prints one joint-tick PID telemetry sample.
+ * @param telemetry Controller telemetry to print; NULL is ignored.
+ * @return None. Writes a formatted diagnostic line to standard output.
+ */
 static void app_log_joint_tick_pid_telemetry(const Kinematics_JointTickPidTelemetry_t *telemetry)
 {
     if (telemetry == NULL)
@@ -838,6 +903,11 @@ static void app_log_joint_tick_pid_telemetry(const Kinematics_JointTickPidTeleme
     );
 }
 
+/**
+ * @brief Prints one Cartesian resolved-rate telemetry sample.
+ * @param telemetry Cartesian controller telemetry to print; NULL is ignored.
+ * @return None. Writes a formatted diagnostic line to standard output.
+ */
 static void app_log_resolved_rate_telemetry(const Kinematics_ResolvedRateTelemetry_t *telemetry)
 {
     if (telemetry == NULL)

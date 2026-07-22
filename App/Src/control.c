@@ -214,6 +214,11 @@ float Control_JointTickPid_Update(Control_JointTickPid_t *pid,
     return clamped_output;
 }
 
+/**
+ * @brief Limits one controller correction to the configured tick interval.
+ * @param output_ticks Unbounded incremental joint command in servo ticks.
+ * @return Incremental command clamped to the configured positive and negative limits.
+ */
 static float Control_ClampJointTickUpdate(float output_ticks)
 {
     if (output_ticks > CONTROL_JOINT_TICK_PID_MAX_UPDATE_TICKS)

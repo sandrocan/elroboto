@@ -49,16 +49,31 @@ static volatile uint8_t cell_last_received_byte = 0U;
 /* Public functions                                                           */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * @brief Attaches the initialized UART handle used by the servo bus adapter.
+ * @param huart UART handle to store; may be NULL to detach it.
+ * @return None. Updates the module's servo_uart handle.
+ */
 void UartServo_AttachHandle(UART_HandleTypeDef *huart)
 {
     servo_uart = huart;
 }
 
+/**
+ * @brief Attaches the initialized UART handle used for e-skin reception.
+ * @param huart UART handle to store; may be NULL to detach it.
+ * @return None. Updates the module's cell_uart handle.
+ */
 void UartCell_AttachHandle(UART_HandleTypeDef *huart)
 {
     cell_uart = huart;
 }
 
+/**
+ * @brief Sends a null-terminated string through the printf-backed debug port.
+ * @param text Text to send; NULL is ignored.
+ * @return None. Writes the text to standard output.
+ */
 void UartDebug_SendString(const char *text)
 {
     if (text == NULL)
@@ -74,6 +89,11 @@ void UartDebug_SendString(const char *text)
     printf("%s", text);
 }
 
+/**
+ * @brief Sends a null-terminated string over the attached servo UART.
+ * @param text Text to send; NULL is ignored.
+ * @return None. Performs a blocking UART transmission when inputs are valid.
+ */
 void UartServo_SendString(const char *text)
 {
     if ((servo_uart == NULL) || (text == NULL))
@@ -89,6 +109,13 @@ void UartServo_SendString(const char *text)
     );
 }
 
+/**
+ * @brief Sends raw bytes over the attached servo UART.
+ * @param data Bytes to transmit.
+ * @param length Number of bytes to transmit.
+ * @param timeout_ms Maximum blocking transmit duration in milliseconds.
+ * @return HAL status from the transmit operation, or HAL_ERROR for invalid input.
+ */
 HAL_StatusTypeDef UartServo_SendBytes(const uint8_t *data, uint16_t length, uint32_t timeout_ms)
 {
     if ((servo_uart == NULL) || (data == NULL) || (length == 0U))
@@ -99,6 +126,13 @@ HAL_StatusTypeDef UartServo_SendBytes(const uint8_t *data, uint16_t length, uint
     return HAL_UART_Transmit(servo_uart, data, length, timeout_ms);
 }
 
+/**
+ * @brief Reads raw bytes from the attached servo UART.
+ * @param data Buffer receiving the bytes.
+ * @param length Number of bytes to read.
+ * @param timeout_ms Maximum blocking receive duration in milliseconds.
+ * @return HAL status from the receive operation, or HAL_ERROR for invalid input.
+ */
 HAL_StatusTypeDef UartServo_ReadBytes(uint8_t *data, uint16_t length, uint32_t timeout_ms)
 {
     if ((servo_uart == NULL) || (data == NULL) || (length == 0U))
@@ -109,26 +143,53 @@ HAL_StatusTypeDef UartServo_ReadBytes(uint8_t *data, uint16_t length, uint32_t t
     return HAL_UART_Receive(servo_uart, data, length, timeout_ms);
 }
 
+/**
+ * @brief Sends a complete servo command packet through the raw-byte adapter.
+ * @param command Command packet to transmit.
+ * @param length Command length in bytes.
+ * @param timeout_ms Maximum blocking transmit duration in milliseconds.
+ * @return HAL status from UartServo_SendBytes.
+ */
 HAL_StatusTypeDef UartServo_SendCommand(const uint8_t *command, uint16_t length, uint32_t timeout_ms)
 {
     return UartServo_SendBytes(command, length, timeout_ms);
 }
 
+/**
+ * @brief Reads a complete servo response through the raw-byte adapter.
+ * @param response Buffer receiving the response packet.
+ * @param length Expected response length in bytes.
+ * @param timeout_ms Maximum blocking receive duration in milliseconds.
+ * @return HAL status from UartServo_ReadBytes.
+ */
 HAL_StatusTypeDef UartServo_ReadResponse(uint8_t *response, uint16_t length, uint32_t timeout_ms)
 {
     return UartServo_ReadBytes(response, length, timeout_ms);
 }
 
+/**
+ * @brief Returns the currently attached servo UART handle.
+ * @return Servo UART handle, or NULL when none is attached.
+ */
 UART_HandleTypeDef *UartServo_GetHandle(void)
 {
     return servo_uart;
 }
 
+/**
+ * @brief Returns the currently attached e-skin UART handle.
+ * @return E-skin UART handle, or NULL when none is attached.
+ */
 UART_HandleTypeDef *UartCell_GetHandle(void)
 {
     return cell_uart;
 }
 
+/**
+ * @brief Resets e-skin receive state and starts interrupt-driven byte reception.
+ * @param value Destination updated whenever a valid numeric frame is processed.
+ * @return HAL_OK when reception starts, HAL_ERROR for invalid input, or another HAL error.
+ */
 HAL_StatusTypeDef UartCell_StartReceiveIT(volatile float *value)
 {
     if ((cell_uart == NULL) || (value == NULL))
@@ -158,6 +219,10 @@ HAL_StatusTypeDef UartCell_StartReceiveIT(volatile float *value)
     );
 }
 
+/**
+ * @brief Processes the latest complete e-skin frame outside interrupt context.
+ * @return None. Updates the attached float value and diagnostic counters for valid input.
+ */
 void UartCell_Process(void)
 {
     char frame[UART_CELL_DATA_SIZE + 1U];
@@ -223,6 +288,11 @@ void UartCell_Process(void)
     cell_last_valid_frame_ms = HAL_GetTick();
 }
 
+/**
+ * @brief Copies the current e-skin UART diagnostic counters and status.
+ * @param diagnostics Destination structure; NULL is ignored.
+ * @return None.
+ */
 void UartCell_GetDiagnostics(UartCell_Diagnostics_t *diagnostics)
 {
     if (diagnostics == NULL)
@@ -240,6 +310,11 @@ void UartCell_GetDiagnostics(UartCell_Diagnostics_t *diagnostics)
     diagnostics->last_received_byte = cell_last_received_byte;
 }
 
+/**
+ * @brief Handles one completed UART byte reception for the attached e-skin UART.
+ * @param huart UART instance that completed reception.
+ * @return None. Buffers valid frames, updates counters, and rearms byte reception.
+ */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
     if ((cell_uart != NULL) && (huart == cell_uart))
@@ -297,6 +372,11 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     }
 }
 
+/**
+ * @brief Records an e-skin UART error and requests receive-path recovery.
+ * @param huart UART instance that reported the error.
+ * @return None. Updates error diagnostics and the deferred recovery flag.
+ */
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
     if ((cell_uart != NULL) && (huart == cell_uart))
@@ -309,6 +389,10 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     }
 }
 
+/**
+ * @brief Aborts reception, clears UART error flags, and drains stale servo RX bytes.
+ * @return None. Leaves the attached servo receive path empty when a handle is available.
+ */
 void UartServo_ClearRxBuffer(void)
 {
     uint8_t dummy;

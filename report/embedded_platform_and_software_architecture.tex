@@ -1,108 +1,77 @@
 \section{Embedded Platform and Software Architecture}
 \label{sec:embedded_platform}
 
-The STM32 integration had three concurrent communication requirements: a
-reliable \(1\,\mathrm{Mbit/s}\) servo bus, continuous E-Skin reception during
-motion, and independent diagnostic output. Application code also had to remain
-separated from STM32CubeMX-generated files. The implementation therefore uses
-CubeMX as the hardware boundary and passes initialized peripheral handles to
-the handwritten application modules.
+The STM32 must operate a \(1\,\mathrm{Mbit/s}\) servo bus, receive E-Skin data
+during motion, and provide independent diagnostics. CubeMX-generated hardware
+initialization is therefore kept separate from handwritten application code;
+initialized peripheral handles form the boundary between both parts.
 
 \subsection{Microcontroller and Communication Configuration}
 
-The firmware targets the NUCLEO-U545RE-Q. The MCU and LPUART1 clocks are derived
-directly from the \(16\,\mathrm{MHz}\) high-speed internal oscillator. LPUART1
-uses PA2 and PA3 with alternate function AF8 and operates bidirectionally at
-\(1\,\mathrm{Mbit/s}\), 8-N-1, without hardware flow control. Selecting the
-peripheral clock explicitly was necessary because the baud-rate setting alone
-does not define the physical bit rate. During bring-up, increasing the system
-clock from \(4\,\mathrm{MHz}\) to \(16\,\mathrm{MHz}\) and receiving each known
-servo response as one block eliminated observed byte loss. The enabled RX FIFO
-additionally buffers short bursts while another interrupt is serviced.
+The firmware targets the NUCLEO-U545RE-Q. LPUART1 uses PA2 and PA3 (AF8) at
+\(1\,\mathrm{Mbit/s}\), 8-N-1, without flow control. Both the MCU and peripheral
+clock derive from the \(16\,\mathrm{MHz}\) internal oscillator. Explicit clock
+selection and the enabled RX FIFO provided reliable reception of complete servo
+responses. During bring-up, raising the system clock from \(4\,\mathrm{MHz}\) to
+\(16\,\mathrm{MHz}\) and receiving each known response as one block eliminated
+the observed byte loss.
 
-The large-area event-driven E-Skin follows the system described by Bergner,
-Dean-Leon, and Cheng \cite{bergner2020eskin}. An ESP32-C6 sends its maximum
-proximity value from GPIO16 to PC11/UART4\_RX at \(115200\,\mathrm{bit/s}\),
-8-N-1. PC10/UART4\_TX is configured but unused by this unidirectional protocol.
-A third UART connection, the ST-LINK virtual COM port at
-\(115200\,\mathrm{bit/s}\), carries logs and controller telemetry. The three
-peripherals shift data independently, although interrupts, parsing, and blocking
-HAL calls still share processor time.
+The E-Skin follows Bergner, Dean-Leon, and Cheng
+\cite{bergner2020eskin}. An ESP32-C6 transmits the maximum proximity value from
+GPIO16 to PC11/UART4\_RX at \(115200\,\mathrm{bit/s}\); UART4\_TX is unused.
+The ST-LINK virtual COM port independently carries logs and controller
+telemetry at the same baud rate.
 
 \subsection{Generated Code and UART Processing}
 
-Clock, GPIO, interrupt, and peripheral initialization remain in the generated
-\texttt{Core} directory, with the \texttt{.ioc} file as their configuration
-source. The generated \texttt{main()} initializes LPUART1 and UART4, passes both
-handles to \texttt{App\_Init()}, and repeatedly calls \texttt{App\_Process()}.
-Handwritten UART, servo, kinematics, control, and sequencing code resides under
-\texttt{App}. The only required post-generation adjustment, explicit servo RX
-FIFO activation, remains inside a CubeMX user-code section.
+The \texttt{.ioc} file defines clocks, GPIOs, interrupts, and peripherals. The
+generated \texttt{main()} initializes both UARTs, passes their handles to
+\texttt{App\_Init()}, and repeatedly calls \texttt{App\_Process()}. Servo,
+UART, kinematics, control, and sequencing modules remain under \texttt{App};
+the servo RX FIFO adjustment is confined to a CubeMX user-code section.
 
-Servo communication uses bounded blocking transfers because every request has a
-known response length. E-Skin samples instead arrive continuously, so UART4
-receives one byte at a time by interrupt. The callback ignores carriage returns
-and publishes a frame only when a newline follows exactly five payload
-characters, for example \texttt{0.123}. A sequence counter prevents foreground
-code from reading a frame during an interrupt update. The conversion with
-\texttt{strtof()} and the finite-value check run in
-\texttt{UartCell\_Process()}, outside the interrupt. This keeps the interrupt
-short and reduces interference with the faster servo bus. Counters for bytes,
-valid and invalid frames, UART errors, receive-restart failures, and the last
-valid sample support fault diagnosis; UART recovery is deferred to foreground
-context.
+Servo requests use bounded blocking transfers with known response lengths.
+Continuous E-Skin data is received byte-wise by interrupt. The callback accepts
+a frame only when a newline follows five payload characters and then publishes
+it through a sequence counter. Parsing and finite-value validation run later in
+\texttt{UartCell\_Process()}, keeping the interrupt short. Counters for valid
+and invalid frames, UART errors, and receive-restart failures support fault
+analysis, while recovery remains deferred to foreground context.
 
 \subsection{Application Integration and E-Skin Response}
 
-\texttt{App\_Init()} starts E-Skin reception before any motion command and
-requires a valid sample within \(2\,\mathrm{s}\). A missing sample or an initial
-value of at least \(0.050\) causes a latched \texttt{FAULT}. Only after this check
-does the application command the start pose and verify it with encoder feedback
-and finite timeouts.
+\texttt{App\_Init()} starts E-Skin reception before servo motion and requires a
+valid sample within \(2\,\mathrm{s}\). Missing data or an initial value of at
+least \(0.050\) latches \texttt{FAULT}. After this check, the application moves
+to and verifies its start pose before executing four Cartesian square
+waypoints with the resolved-rate controller from
+Section~\ref{sec:feedback_control}.
 
-The demonstration calculates its initial tool center point through forward
-kinematics and generates four waypoints in a constant-\(x\) plane. It exclusively
-selects \texttt{Kinematics\_\allowbreak MoveEndEffector\allowbreak
-ToPosition\allowbreak ResolvedRate()}, described in
-Section~\ref{sec:feedback_control}. This blocking motion routine repeatedly
-calls \texttt{app\_motion\_abort\_requested()}, which processes pending E-Skin
-frames and the user button. Sensor supervision therefore remains active within
-each control cycle rather than only between waypoints.
+The blocking motion routine invokes the safety callback every control cycle.
+At an E-Skin value of \(0.050\), it stops trajectory updates, commands the four
+active joints to hold their measured positions, and enters
+\texttt{PAUSED\_SKIN}. Motion resumes only after the value remains at or below
+\(0.020\) for \(500\,\mathrm{ms}\). Stale data, proximity during startup, or
+a failed hold command instead produces \texttt{FAULT}. This software response
+is not a certified emergency stop: its latency depends on the current control
+and UART operation, successful holding still requires communication, and the
+servos remain powered. A physical means of disconnecting actuator power is
+still required.
 
-At an E-Skin value of \(0.050\), the application stops issuing trajectory
-updates, reads the four active joint positions, and writes them back as hold
-targets before entering \texttt{PAUSED\_SKIN}. Motion resumes at the same
-waypoint only after the value remains at or below \(0.020\) for
-\(500\,\mathrm{ms}\). A data age above \(1\,\mathrm{s}\), proximity during start
-positioning, or a failed hold command instead produces \texttt{FAULT}. This is
-only a software risk-reduction mechanism: response latency depends on the
-current control and UART operation, the servos remain powered, and successful
-holding still depends on communication. A physical means of disconnecting
-actuator power therefore remains necessary.
+These STM32 motion thresholds are independent of the ESP32's visual-feedback
+thresholds. The latter change the E-Skin LEDs at \(0.03\), \(0.016\), and
+\(0.80\), but do not directly command robot motion.
 
-\subsection{Control Integration and Individual Contribution}
+\subsection{Control Integration}
 
-The controller evaluation compares a one-shot baseline with Cartesian
-resolved-rate feedback under the same geometry, limits, speed, acceleration,
-and timeout. The baseline sends one complete inverse-kinematic solution and
-uses encoder readings at detected joint standstill only to evaluate the
-remaining model-based TCP error. Thus, ``without controller'' means without an
-additional Cartesian loop; the internal STS3215 position controllers remain
-active. The selected controller
-synchronously reads all four active joints, reconstructs the TCP, calculates a
-bounded Cartesian P step in the HAL-independent
-\texttt{Control\_ResolvedRate\_CalculateStep()}, maps it through a damped
-Jacobian inverse, and synchronously writes the updated targets. The optional
-joint-tick PID remains in the source but is neither evaluated nor selected.
+The controller comparison used identical geometry, limits, motion parameters,
+and timeouts. The one-shot baseline evaluated encoder feedback only after
+standstill, whereas the selected controller repeatedly read all active joints,
+reconstructed the TCP, calculated a bounded Cartesian correction, and
+synchronously updated the targets. Detailed controller design and results are
+given in Section~\ref{sec:feedback_control}.
 
-The main integration challenge was combining continuous low-rate sensor traffic
-with tightly spaced servo responses and a blocking motion interface. Moving
-floating-point parsing out of the UART4 interrupt, enabling the servo RX FIFO,
-and reusing the motion abort callback solved this without an RTOS. Alessandro
-Canalicchio's contribution comprised the STM32 and CubeMX configuration,
-generated/application-code separation, diagnostics and fault propagation,
-implementation and evaluation of the one-shot baseline through the common
-kinematics and servo interfaces, integration of the resolved-rate controller
-into the final application path, and the STM32-side E-Skin integration. Sensor
-acquisition and preprocessing on the ESP32 belong to the separate sensing
-subsystem.
+The main integration challenge was combining continuous sensor traffic with
+tightly spaced servo responses and a blocking motion interface. Moving parsing
+out of the interrupt, enabling the servo RX FIFO, and reusing the motion abort
+callback provided sufficient responsiveness without introducing an RTOS.

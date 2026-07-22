@@ -1,12 +1,45 @@
 \section{Conclusion}
 
-The conclusion should summarize:
+This work demonstrated that the essential motion-control functions of the
+SO-101 robot arm can be executed directly on an STM32U545 without a permanent
+host-computer connection. The resulting embedded architecture combines direct
+Feetech servo communication, calibrated joint limits, encoder feedback,
+forward and inverse kinematics, Cartesian feedback control, diagnostics, and
+E-Skin supervision in one firmware application. Separation between
+CubeMX-generated initialization and handwritten modules kept hardware access,
+robot logic, and numerical calculations clearly structured.
 
-\begin{itemize}
-    \item the standalone embedded architecture;
-    \item the successful kinematic and servo implementation;
-    \item the integrated joint controller;
-    \item the computational optimization;
-    \item the sensor subsystem and its final integration status;
-    \item the limitations and logical next development step.
-\end{itemize}
+The communication and kinematic stack was validated on the physical robot
+through checked joint movements and a four-waypoint Cartesian square sequence.
+A one-shot IK command alone left a mean model-based TCP error of
+\(10.13\,\mathrm{mm}\). The selected Cartesian resolved-rate P controller reduced
+this value to \(0.87\,\mathrm{mm}\), with all four reported waypoints below the
+\(1\,\mathrm{mm}\) controller criterion. These values show improved consistency
+between commanded targets and encoder-based pose estimates, but they do not
+establish equivalent physical TCP accuracy or statistical repeatability.
+
+The computational benchmarks showed that optimization of the homogeneous
+matrix multiplication was more effective than replacing the standard
+trigonometric functions. The selected implementation accelerated complete
+forward and inverse kinematics by factors of approximately \(2.07\) and
+\(2.02\), respectively, without measured additional error from the matrix
+optimization. This confirms that numerical kinematics can be executed within
+the resource constraints of the selected microcontroller.
+
+The E-Skin subsystem extended the demonstrator with physically connected
+proximity feedback. The ESP32-C6 aggregates measurements and transmits the
+maximum value to the STM32, where startup validation, stale-data detection,
+motion pause, joint holding, and hysteretic resume behavior are integrated.
+However, no systematic measurement of the complete detection-to-hold latency
+was performed. The mechanism is therefore a software-based risk-reduction
+feature rather than a certified collision-avoidance or emergency-stop system.
+
+Overall, the project establishes a functional standalone platform for further
+embedded robot-control development. Its main limitations are position-only
+control with four active joints, fixed wrist rotation and gripper state, the
+absence of explicit Cartesian path planning, and model-based rather than
+independently measured TCP feedback. The logical next step is to combine
+repeated trials and external metrology with workspace and singularity analysis,
+measured E-Skin response latency, and explicit Cartesian trajectory generation.
+Full-pose control and any safety-related claim would require additional sensing,
+hardware safeguards, and a dedicated validation process.

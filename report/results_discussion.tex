@@ -1,25 +1,109 @@
 \section{Results and Discussion}
+\label{sec:results_discussion}
 
-It should discuss:
+The results demonstrate that the main robot-side functions can be executed on
+the STM32 without a host computer. The strength of the evidence differs between
+subsystems: computational benchmarks used repeated measurements, the controller
+comparison used one hardware run per method, and the E-Skin validation verified
+the sensor and UART data path but did not quantify the complete dynamic stop
+response. The following discussion therefore distinguishes functional
+demonstration from accuracy, repeatability, and safety claims.
 
-\begin{itemize}
-    \item successful embedded servo communication;
-    \item physical validation of the kinematic solver;
-    \item execution of the square waypoint sequence;
-    \item controller behavior;
-    \item benchmark conclusions;
-    \item sensor validation and final integration status;
-    \item limitations of the proof of concept.
-\end{itemize}
+\subsection{Embedded Motion Stack}
 
-Important limitations include:
+The STM32 communicated directly with the Feetech bus at
+\(1\,\mathrm{Mbit/s}\), and the implemented protocol covered torque commands,
+position targets, and encoder feedback. Clearing stale receive data, validating
+packet fields, retrying failed reads, and propagating result codes addressed the
+communication failures observed during bring-up. The complete communication
+chain and the kinematic motion interfaces were exercised on the physical arm.
 
-\begin{itemize}
-    \item four active kinematic joints rather than full six-DoF pose control;
-    \item fixed wrist rotation and gripper state;
-    \item no general trajectory planning;
-    \item no guaranteed straight-line Cartesian interpolation;
-    \item no systematic workspace or singularity characterization;
-    \item no dynamic robot model;
-    \item no exhaustive unreachable-target testing.
-\end{itemize}
+Forward and inverse kinematics, joint-limit enforcement, and blocking motion
+were combined successfully in the four-waypoint square demonstration. This
+validates the functional path from a Cartesian target to checked servo commands
+and back to encoder-based pose estimation. It does not, however, demonstrate a
+geometrically straight TCP trajectory. Each corner is a waypoint, and no path
+interpolator constrains the motion between consecutive targets. The initial
+approximately 50-tick joint acceptance criterion also characterizes servo-level
+arrival rather than physical Cartesian accuracy.
+
+\subsection{Feedback-Control Performance}
+
+The one-shot baseline left model-based terminal TCP errors between
+\(4.21\,\mathrm{mm}\) and \(16.44\,\mathrm{mm}\). With Cartesian resolved-rate
+feedback, all four reported values lay between \(0.81\,\mathrm{mm}\) and
+\(0.93\,\mathrm{mm}\), as shown in
+Table~\ref{tab:controller_endpoint_error}. The mean decreased from
+\(10.13\,\mathrm{mm}\) to \(0.87\,\mathrm{mm}\), a reduction of approximately
+\(91.4\,\%\). This shows the practical benefit of re-reading the joints and
+correcting the coupled Cartesian error instead of relying on one converted IK
+target.
+
+The \(1\,\mathrm{mm}\) controller stopping criterion is stricter than the
+\(5\,\mathrm{mm}\) tolerance used for the standalone IK solver. The two values
+serve different purposes: the latter limits numerical solution effort before a
+move, whereas the outer loop refines the position reconstructed from measured
+encoder ticks. A larger proportional gain and an additional filtered derivative
+term produced more corrective motion near the waypoint, so the simpler
+speed-limited P controller was retained. These observations are qualitative;
+only the final P controller and one-shot baseline have tabulated endpoint data.
+
+The numerical values must also be interpreted as model consistency rather than
+physical TCP accuracy. Target and measured positions are evaluated through the
+same forward model, so backlash, compliance, calibration error, and tool
+displacement remain unobserved. Furthermore, one run per method is insufficient
+to establish statistical repeatability or overshoot.
+
+\subsection{Computational Results}
+
+The specialized homogeneous-transform multiplication was the effective
+optimization. It reduced an isolated matrix product from 4608 to 1146 cycles,
+corresponding to a \(4.02\)-fold speedup without measured numerical deviation.
+In the complete algorithms, forward kinematics improved from 39,142 to 18,889
+cycles and inverse kinematics from 884,852 to 438,841 cycles, giving speedups of
+\(2.07\) and \(2.02\), respectively.
+
+CMSIS-DSP reduced the isolated trigonometric cost but did not materially improve
+the full calculation and introduced a small approximation error. Retaining
+standard \texttt{sinf()} and \texttt{cosf()} with the specialized matrix product
+therefore provided the best measured trade-off. All 100 benchmark IK cases
+converged in an average of 5.2 iterations, and the maximum residual error of
+\(4.49\,\mathrm{mm}\) remained within the configured solver tolerance. These
+benchmarks isolate computation from communication and mechanical delays; they
+do not predict complete motion duration.
+
+\subsection{Sensing and System Integration}
+
+The sensing subsystem operated with two physical E-Skin nodes, while the ESP32
+software supports up to 32 sensor IDs. Aggregating the latest measurements into
+one maximum value removed conflicting LED decisions between nodes. The ESP32
+visual feedback uses its own warning, clear, and touch thresholds, whereas the
+STM32 independently applies \(0.050\) for motion pause and \(0.020\) for resume
+qualification.
+
+The ESP32-to-STM32 UART path was validated on hardware with continuous valid
+frames. Unloaded values around \(0.011\) and proximity values above \(0.8\) were
+observed. On the STM32, interrupt-driven reception, foreground parsing, startup
+validation, stale-data detection, hold commands, and hysteretic resume logic
+are integrated into the motion path. Nevertheless, the transmitted maximum is
+limited to 4 Hz, and no repeated measurement of detection-to-hold latency during
+arm motion is reported. The result is therefore a physically connected and
+firmware-integrated collision-feedback prototype, not a validated
+collision-avoidance or emergency-stop system.
+
+\subsection{Limitations and Next Steps}
+
+The kinematic model controls position with four active joints; wrist rotation
+and the gripper remain fixed, so full six-degree-of-freedom pose control is not
+provided. The project also lacks general trajectory planning, guaranteed
+straight-line interpolation, systematic workspace and singularity mapping, a
+dynamic robot model, and exhaustive unreachable-target testing. Blocking servo
+transactions make control timing dependent on communication, while the E-Skin
+response remains software-based and leaves the actuators energized.
+
+The most useful next steps are repeated controller trials with independent TCP
+metrology, measured sensor-to-hold latency, systematic reachable-workspace and
+singularity tests, and explicit Cartesian path generation. Full-pose control
+would additionally require incorporating wrist rotation and defining the
+desired end-effector orientation. Any safety claim would require independent
+hardware measures and a dedicated risk assessment beyond this proof of concept.

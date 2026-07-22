@@ -1,27 +1,36 @@
 \section{Cartesian Feedback Control and Motion Execution}
 \label{sec:feedback_control}
-\label{sec:joint_control}
 
 \subsection{Control Problem and Baseline}
 
-The numerical inverse-kinematic solver described previously produces joint angles for which the modeled end-effector position satisfies its convergence criterion. After conversion to integer ticks, however, a single command does not guarantee that the servos reach those targets exactly. The internal position controller of each STS3215 acts only on its own motor target \cite{feetech_protocol}; it does not evaluate the Cartesian result of the coupled four-joint motion.
+The numerical inverse-kinematic solver produces joint angles that satisfy the
+model-based convergence criterion. After conversion to integer ticks, however,
+a single command does not guarantee that the servos reach these targets
+exactly. Each STS3215 controls only its own motor position
+\cite{feetech_protocol}, not the Cartesian result of the coupled motion.
 
-This limitation was quantified with a one-shot baseline. The current encoder positions were used as the seed for the complete inverse-kinematic solution, and the resulting four targets were transmitted in one synchronous write. No outer correction followed. After at least \(300\,\mathrm{ms}\), the motion was classified as settled when all four encoder values changed by at most one tick for three consecutive observation cycles. The final encoder values were then converted to joint angles and evaluated with forward kinematics. A \(20\,\mathrm{s}\) timeout covered communication or settling failures. This procedure measures the endpoint reached by one IK command without weakening the \(1\,\mathrm{mm}\) IK convergence tolerance.
-
-The controlled variable is not an independently measured physical tool center point (TCP). It is the model-based estimate
+The one-shot baseline therefore read the four joint positions, solved the
+complete IK problem, and sent all targets in one synchronous write. Motion was
+considered settled when every encoder changed by at most one tick for three
+cycles; a \(20\,\mathrm{s}\) timeout bounded failures. The measured ticks were
+then evaluated through forward kinematics as
 
 \begin{equation}
     \hat{\mathbf{p}}(k)
     =
-    \mathbf{p}\!\left(\mathbf{q}_{\mathrm{meas}}(k)\right),
+    \mathbf{p}\!\left(\mathbf{q}_{\mathrm{meas}}(k)\right).
     \label{eq:estimated_tcp}
 \end{equation}
 
-obtained from encoder ticks and the forward model in Equation~\ref{eq:end_effector_position}. The controller can therefore reduce errors represented by the encoders and kinematic model, but cannot observe backlash, link deflection, geometric calibration errors, or displacement of the physical TCP.
+This estimate is not an independently measured physical tool center point
+(TCP). Encoder feedback and the kinematic model cannot reveal backlash, link
+deflection, geometric calibration errors, or displacement of the physical TCP.
 
 \subsection{Resolved-Rate P Controller}
 
-Resolved-rate control maps a Cartesian motion rate into coordinated joint motion through the manipulator Jacobian \cite{whitney1969resolved}. Each cycle begins with one synchronous read of the four active servo positions. The Cartesian error is
+Resolved-rate control converts Cartesian error into coordinated joint motion
+through the manipulator Jacobian \cite{whitney1969resolved}. Each cycle begins
+with a synchronous read of the four active joints. The Cartesian error is
 
 \begin{equation}
     \mathbf{e}_{p}(k)
@@ -30,22 +39,25 @@ Resolved-rate control maps a Cartesian motion rate into coordinated joint motion
     \label{eq:resolved_rate_error}
 \end{equation}
 
-The outer controller applies proportional feedback and a Cartesian speed limit:
+The outer controller applies proportional feedback with a speed limit:
 
 \begin{equation}
     \mathbf{v}_{c}(k)
     =
     \operatorname{sat}_{v_{\max}}
     \left(K_{P,c}\mathbf{e}_{p}(k)\right),
+    \qquad
+    K_{P,c}=2\,\mathrm{s}^{-1},
+    \quad
+    v_{\max}=0.1\,\mathrm{m/s}.
     \label{eq:cartesian_p_velocity}
 \end{equation}
 
-where \(K_{P,c}=2\,\mathrm{s}^{-1}\) and \(v_{\max}=0.1\,\mathrm{m/s}\). The vector \(\mathbf{v}_{c}\) is a commanded TCP velocity and the virtual output of the outer controller. It is neither measured nor sent directly to the servos. Multiplication by the measured elapsed cycle time converts it into the Cartesian displacement requested during one update:
+Using the measured cycle time, rather than assuming the nominal
+\(20\,\mathrm{ms}\) period, gives
 
 \begin{equation}
-    \Delta\mathbf{p}(k)
-    =
-    \mathbf{v}_{c}(k)\Delta t_k,
+    \Delta\mathbf{p}(k)=\mathbf{v}_{c}(k)\Delta t_k,
     \qquad
     \mathbf{p}_{\mathrm{next}}(k)
     =
@@ -53,58 +65,53 @@ where \(K_{P,c}=2\,\mathrm{s}^{-1}\) and \(v_{\max}=0.1\,\mathrm{m/s}\). The vec
     \label{eq:resolved_rate_cartesian_step}
 \end{equation}
 
-The nominal period is \(20\,\mathrm{ms}\), but blocking communication and telemetry can change the actual interval. Using \(\Delta t_k\) makes the commanded displacement proportional to elapsed time instead of the number of function calls. For example, an unsaturated \(20\,\mathrm{mm}\) error produces \(40\,\mathrm{mm/s}\) and thus a \(0.8\,\mathrm{mm}\) step during a \(20\,\mathrm{ms}\) cycle. Omitting \(\Delta t_k\) would require a dimensionless discrete gain and would make the effective motion rate depend directly on update frequency.
+Blocking communication and telemetry can vary the actual interval. Including
+\(\Delta t_k\) keeps displacement proportional to elapsed time rather than the
+number of controller calls. At the nominal period, for example, an unsaturated
+\(20\,\mathrm{mm}\) error produces a \(0.8\,\mathrm{mm}\) Cartesian step.
 
-One damped least-squares update using Equation~\ref{eq:damped_least_squares} maps the local Cartesian displacement to a joint displacement. Equivalently,
+One damped least-squares update maps this displacement into joint space:
 
 \begin{equation}
-    \dot{\mathbf{q}}_{c}
-    =
-    \mathbf{J}^{+}(\mathbf{q})\mathbf{v}_{c},
-    \qquad
     \Delta\mathbf{q}(k)
     \approx
     \mathbf{J}^{+}(\mathbf{q})\mathbf{v}_{c}(k)\Delta t_k.
     \label{eq:resolved_rate_joint_step}
 \end{equation}
 
-The floating-point joint command is updated by
+The floating-point joint command accumulates these increments so that sub-tick
+corrections are not lost. After joint-limit checks, all targets are converted
+to ticks and sent synchronously. The loop terminates when
+\(\lVert\mathbf{e}_{p}\rVert_2\leq1\,\mathrm{mm}\), an abort is requested, or
+the timeout expires. Although the actuators receive joint-position targets,
+the feedback error and controller output are Cartesian; this distinguishes the
+method from independent joint-space control.
 
-\begin{equation}
-    \mathbf{q}_{\mathrm{command}}(k+1)
-    =
-    \mathbf{q}_{\mathrm{command}}(k)+\Delta\mathbf{q}(k).
-    \label{eq:resolved_rate_joint_accumulation}
-\end{equation}
-
-Accumulation preserves sub-tick corrections that would otherwise be lost during repeated integer conversion. After joint-limit checks, the four position targets are converted to ticks and transmitted in one synchronous write. These ticks are the physical servo commands. The read--estimate--correct--write cycle terminates when \(\|\mathbf{e}_{p}\|_2\leq1\,\mathrm{mm}\), when the motion is aborted, or when its finite timeout expires.
-
-Although the actuators receive joint-position targets, the outer feedback error and controller output are defined in Cartesian space. The method is therefore a Cartesian resolved-rate controller rather than four independent joint-space controllers. The \(1\,\mathrm{mm}\) stopping threshold used for this controller evaluation is distinct from the \(5\,\mathrm{mm}\) tolerance used for the initial standalone IK validation.
+The accumulated command can temporarily lead the measured joint positions if
+the servos cannot follow each increment immediately. This effect may contribute
+to endpoint oscillation, but it is not integral windup because the implemented
+outer controller contains no integral state.
 
 \subsection{Selection of the Control Terms}
 
-The proportional gain determines the approach rate near the waypoint. For errors above \(v_{\max}/K_{P,c}=50\,\mathrm{mm}\), speed saturation dominates and the gain no longer increases the commanded speed. A trial with \(K_{P,c}=4\,\mathrm{s}^{-1}\) reduced this transition distance to \(25\,\mathrm{mm}\); the arm consequently began decelerating later and showed more endpoint correction. In addition, accumulated joint commands can temporarily move ahead of measured joint positions when the servos cannot follow each increment immediately. This command lead can contribute to endpoint oscillation and must not be confused with integral windup.
-
-A more general task-space PID law was considered:
-
-\begin{equation}
-    \mathbf{v}_{c}
-    =
-    K_{P,c}\mathbf{e}_{p}
-    +K_{I,c}\mathbf{z}
-    -K_{D,c}\dot{\hat{\mathbf{p}}},
-    \qquad
-    \dot{\mathbf{z}}=\mathbf{e}_{p}.
-    \label{eq:cartesian_pid_velocity}
-\end{equation}
-
-A derivative-on-measurement term was tested with low-pass filtering to avoid derivative kick at waypoint changes and to attenuate encoder quantization. Under the tested tuning it did not improve settling; instead, additional corrective motion was observed near the waypoint. Since this was a qualitative observation without independent TCP measurement, it is reported as increased endpoint oscillation rather than quantified physical overshoot. The D term was therefore not retained.
-
-An integral term could compensate for a persistent modeled TCP offset, but would require anti-windup during Cartesian or joint saturation. The P controller already reached the specified error criterion, so no relevant residual remained relative to the project requirement and an I term offered no demonstrated benefit. The final implementation consequently uses proportional action only, following the principle of retaining the least complex controller that satisfies the measured requirement \cite{astrom2008feedback}.
+For errors above \(v_{\max}/K_{P,c}=50\,\mathrm{mm}\), speed saturation
+dominates. Increasing \(K_{P,c}\) to \(4\,\mathrm{s}^{-1}\) delayed
+deceleration and produced more endpoint correction. A filtered
+derivative-on-measurement term was tested to avoid derivative kick and reduce
+the influence of encoder quantization. It did not improve settling and produced
+more corrective motion near the waypoint. Because no independent TCP
+measurement was available, this is reported as observed oscillation rather
+than quantified physical overshoot. An integral term offered no demonstrated
+benefit and would require anti-windup during Cartesian or joint saturation.
+The final implementation therefore retained the simpler P controller
+\cite{astrom2008feedback}.
 
 \subsection{Experimental Result and Limitation}
 
-The baseline and controlled tests began from the same commanded start pose and used the same four waypoint targets, servo speed, acceleration, timeout, kinematic model, and joint limits. The first target led from the central start pose to the upper-left corner; the remaining targets followed the other square corners. No E-Skin pause or communication fault occurred in either recorded run. Table~\ref{tab:controller_endpoint_error} reports the Euclidean terminal TCP errors reconstructed from servo feedback.
+The baseline and controlled runs used the same start pose, four square
+waypoints, speed, acceleration, timeout, model, and joint limits. No E-Skin
+pause or communication fault occurred. Table~\ref{tab:controller_endpoint_error}
+shows terminal TCP errors reconstructed from servo feedback.
 
 \begin{table}[!h]
     \centering
@@ -122,12 +129,13 @@ The baseline and controlled tests began from the same commanded start pose and u
         Mean        & \(10.13\,\mathrm{mm}\) & \(0.87\,\mathrm{mm}\) \\
         Maximum     & \(16.44\,\mathrm{mm}\) & \(0.93\,\mathrm{mm}\) \\
         \hline
-\end{tabular}
+    \end{tabular}
 \end{table}
 
-Detailed Cartesian error components and terminal cycle indices are provided in
-Appendix~\ref{app:controller-results}.
-
-The resolved-rate controller satisfied the \(1\,\mathrm{mm}\) criterion at every waypoint. Relative to the one-shot baseline, the mean model-based error decreased by approximately \(91.4\,\%\), or by a factor of \(11.6\). This result was the basis for selecting the outer P loop for the final application.
-
-The result demonstrates improved consistency between the commanded TCP and the position reconstructed from servo encoders. It does not establish sub-millimeter physical accuracy or statistical repeatability: both values depend on the same forward model, and only one run per method was recorded. Independent metrology and repeated trials would be required to characterize physical accuracy, repeatability, and overshoot.
+The controller remained below \(1\,\mathrm{mm}\) at every waypoint and reduced
+the mean model-based error
+by approximately \(91.4\,\%\), or a factor of \(11.6\). This result justified
+its selection for the final demonstration. However, one run per method does
+not establish physical accuracy or repeatability. Both evaluation values
+depend on the same forward model; independent metrology and repeated trials
+would be required for those claims.

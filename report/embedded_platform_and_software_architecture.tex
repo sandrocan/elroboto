@@ -1,10 +1,13 @@
 \section{Embedded Platform and Software Architecture}
 \label{sec:embedded_platform}
 
-The STM32 must operate a \(1\,\mathrm{Mbit/s}\) servo bus, receive E-Skin data
-during motion, and provide independent diagnostics. CubeMX-generated hardware
-initialization is therefore kept separate from handwritten application code;
-initialized peripheral handles form the boundary between both parts.
+The STM32 communicates with the daisy-chained Feetech servos over a
+\(1\,\mathrm{Mbit/s}\) serial bus, including synchronous access to the four
+active joints. In parallel, it receives E-Skin data during motion and provides
+an independent diagnostic channel. The firmware separates CubeMX-generated
+peripheral initialization from the handwritten application logic. After
+startup, the initialized peripheral handles provide the interface through
+which the application accesses the configured UART channels.
 
 \subsection{Microcontroller and Communication Configuration}
 
